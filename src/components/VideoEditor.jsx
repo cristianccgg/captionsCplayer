@@ -311,12 +311,12 @@ export function VideoEditor() {
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col min-h-screen">
       {/* Container principal que cambia de dirección en breakpoint md */}
-      <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1">
         {/* Editor de Subtítulos */}
-        <div className="w-full md:w-1/3 bg-black border-t md:border-t-0 md:border-r border-gray-700 flex flex-col overflow-hidden order-2 md:order-1">
-          <div className="flex-1 p-4 overflow-y-auto">
+        <div className="flex-none md:w-1/3 bg-black border-t md:border-t-0 md:border-r border-gray-700 flex flex-col order-2 md:order-1">
+          <div className="h-64 md:flex-1 p-4 overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4 text-white">
               Editor de Subtítulos
             </h3>
@@ -456,8 +456,8 @@ export function VideoEditor() {
         </div>
 
         {/* Video Preview - Orden cambiado para móvil */}
-        <div className="flex-1 flex flex-col order-1 md:order-2">
-          <div className="flex-1 p-2 md:p-4 bg-black">
+        <div className="flex-none md:flex-1 flex flex-col order-1 md:order-2">
+          <div className="h-64 md:h-full p-2 md:p-4 bg-black">
             <div className="h-full">
               <div className="relative w-full h-full bg-white rounded-lg overflow-hidden">
                 {videoUrl ? (
