@@ -454,7 +454,6 @@ export function VideoEditor() {
             selectedPhraseIds={selectedPhraseIds}
           />
         </div>
-
         {/* Video Preview - Orden cambiado para móvil */}
         <div className="flex-none md:flex-1 flex flex-col order-1 md:order-2">
           <div className="h-64 md:h-full p-2 md:p-4 bg-black">
@@ -472,6 +471,12 @@ export function VideoEditor() {
                       onLoadedMetadata={(e) => {
                         setDuration(e.target.duration);
                       }}
+                      playsInline // Forzar reproducción inline en iOS
+                      webkit-playsinline="true" // Soporte para versiones antiguas de iOS
+                      x5-playsinline="true" // Soporte para navegadores basados en X5
+                      controlsList="nodownload nofullscreen noremoteplayback" // Prevenir controles nativos
+                      disablePictureInPicture // Deshabilitar picture-in-picture
+                      preload="auto" // Precargar el video
                     />
                     <TranscriptionProgress
                       isTranscribing={isTranscribing}
