@@ -1,24 +1,37 @@
 import axios from "axios";
 
-const ASSEMBLY_API_KEY = "cb727e29922b4d62950a8d695975bcc6";
+const LANGUAGE_CODES = {
+  es: "Español",
+  en: "Inglés",
+  fr: "Francés",
+  de: "Alemán",
+  it: "Italiano",
+  pt: "Portugués",
+  auto: "Detección Automática",
+};
 
 const endsWithPunctuation = (text) => /[.!?]$/.test(text);
 
-export const transcribeAudio = async (file, onProgress) => {
+export const transcribeAudio = async (file, onProgress, options = {}) => {
   try {
-    console.log("Starting transcription process...");
-    console.log("Uploading file to AssemblyAI...");
+    const API_KEY = import.meta.env.VITE_ASSEMBLY_API_KEY;
 
-    // Ajuste específico para Chrome
-    const formData = new FormData();
-    formData.append("file", file);
+    // Configuración de idioma mejorada
+    const languageConfig =
+      options.languageCode === "auto"
+        ? { language_detection: true }
+        : {
+            language_code: options.languageCode || "es",
+          };
+
+    console.log("Starting transcription process...");
 
     const uploadResponse = await axios.post(
       "https://api.assemblyai.com/v2/upload",
       file instanceof Blob ? file : new Blob([file], { type: file.type }),
       {
         headers: {
-          Authorization: ASSEMBLY_API_KEY,
+          Authorization: API_KEY,
           "Content-Type": "application/octet-stream",
         },
         maxContentLength: Infinity,
@@ -26,23 +39,16 @@ export const transcribeAudio = async (file, onProgress) => {
       }
     );
 
-    if (!uploadResponse.data.upload_url) {
-      throw new Error("Upload failed");
-    }
-    console.log("File uploaded successfully");
-
-    // El resto del código permanece exactamente igual
-    console.log("Starting transcription...");
     const transcriptionResponse = await axios.post(
       "https://api.assemblyai.com/v2/transcript",
       {
         audio_url: uploadResponse.data.upload_url,
-        language_code: "es",
+        ...languageConfig, // Usar configuración condicional
         punctuate: true,
       },
       {
         headers: {
-          Authorization: ASSEMBLY_API_KEY,
+          Authorization: API_KEY,
           "Content-Type": "application/json",
         },
       }
@@ -59,7 +65,10 @@ export const transcribeAudio = async (file, onProgress) => {
         const statusResponse = await axios.get(
           `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
           {
-            headers: { Authorization: ASSEMBLY_API_KEY },
+            headers: {
+              // Cambia ASSEMBLY_API_KEY por API_KEY
+              Authorization: API_KEY,
+            },
           }
         );
         const transcriptStatus = statusResponse.data.status;
@@ -134,12 +143,18 @@ export const transcribeAudio = async (file, onProgress) => {
         currentWordCount = 0;
       }
     }
+    // Agregar información de idioma detectado
+    const detectedLanguage = transcript.language_code || "unknown";
 
     return {
       phrases: phrases.map((phrase) => ({
         ...phrase,
         text: phrase.text.trim(),
       })),
+      language: {
+        code: detectedLanguage,
+        name: LANGUAGE_CODES[detectedLanguage] || "Desconocido",
+      },
     };
   } catch (error) {
     console.error("Transcription error:", error);

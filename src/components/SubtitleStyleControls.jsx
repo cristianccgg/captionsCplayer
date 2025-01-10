@@ -29,49 +29,54 @@ const defaultStyles = {
 // Opciones de fuentes con ejemplos de familias web seguras y Google Fonts populares
 const fontOptions = [
   {
-    name: "Sistema",
-    value: "system-ui, -apple-system, sans-serif",
-    fallback: "Arial, Helvetica, sans-serif",
-  },
-  {
-    name: "Arial",
-    value: "Arial, Helvetica, sans-serif",
-    fallback: "sans-serif",
-  },
-  {
-    name: "Verdana",
-    value: "Verdana, Geneva, sans-serif",
-    fallback: "sans-serif",
-  },
-  {
     name: "Roboto",
     value: "'Roboto', sans-serif",
-    fallback: "Arial, Helvetica, sans-serif",
-    link: "https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap",
-  },
-  {
-    name: "Open Sans",
-    value: "'Open Sans', sans-serif",
-    fallback: "Arial, Helvetica, sans-serif",
-    link: "https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;700&display=swap",
+    description: "Moderna y muy legible",
   },
   {
     name: "Montserrat",
     value: "'Montserrat', sans-serif",
-    fallback: "Arial, Helvetica, sans-serif",
-    link: "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap",
+    description: "Elegante y clara",
   },
   {
-    name: "Lato",
-    value: "'Lato', sans-serif",
-    fallback: "Arial, Helvetica, sans-serif",
-    link: "https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap",
+    name: "Open Sans",
+    value: "'Open Sans', sans-serif",
+    description: "Excelente legibilidad",
   },
   {
-    name: "Source Sans Pro",
-    value: "'Source Sans Pro', sans-serif",
-    fallback: "Arial, Helvetica, sans-serif",
-    link: "https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@400;700&display=swap",
+    name: "Oswald",
+    value: "'Oswald', sans-serif",
+    description: "Condensada y llamativa",
+  },
+  {
+    name: "Fira Sans",
+    value: "'Fira Sans', sans-serif",
+    description: "Moderna y versátil",
+  },
+  {
+    name: "Barlow",
+    value: "'Barlow', sans-serif",
+    description: "Geométrica y clara",
+  },
+  {
+    name: "Inter",
+    value: "'Inter', sans-serif",
+    description: "Diseñada para pantallas",
+  },
+  {
+    name: "Roboto Condensed",
+    value: "'Roboto Condensed', sans-serif",
+    description: "Compacta y clara",
+  },
+  {
+    name: "Bebas Neue",
+    value: "'Bebas Neue', cursive",
+    description: "Impactante, toda en mayúsculas",
+  },
+  {
+    name: "Anton",
+    value: "'Anton', sans-serif",
+    description: "Bold y muy visible",
   },
 ];
 

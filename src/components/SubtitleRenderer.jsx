@@ -9,7 +9,6 @@ export const SubtitleRenderer = ({
 }) => {
   // Función para cargar fuentes dinámicamente
   const loadFont = (fontFamily) => {
-    // Extrae el nombre de la fuente para las fuentes de Google
     const googleFontName = fontFamily.match(/'([^']*)'/);
     if (googleFontName) {
       const link = document.createElement("link");
@@ -23,7 +22,6 @@ export const SubtitleRenderer = ({
   };
 
   useEffect(() => {
-    // Cargar la fuente al montar el componente
     if (styles.fontFamily) {
       loadFont(styles.fontFamily);
     }
@@ -33,13 +31,14 @@ export const SubtitleRenderer = ({
     const phraseLength = phrase.end - phrase.start;
     const words = phrase.text.split(" ");
     const timePerWord = phraseLength / words.length;
+
     return words.map((word, index) => ({
       word,
       start: phrase.start + timePerWord * index,
       end: phrase.start + timePerWord * (index + 1),
       isCurrentWord:
-        currentTime * 1000 >= phrase.start + timePerWord * index &&
-        currentTime * 1000 <= phrase.start + timePerWord * (index + 1),
+        currentTime >= phrase.start + timePerWord * index &&
+        currentTime <= phrase.start + timePerWord * (index + 1),
     }));
   };
 
@@ -61,13 +60,11 @@ export const SubtitleRenderer = ({
     return defaultPositions[styles.position || "bottom"];
   };
 
-  // Nueva función para dividir el texto en líneas
   const splitIntoLines = (words) => {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     const scaledFontSize = styles.fontSize * (containerHeight / 1080);
 
-    // Usar la fuente completa, incluyendo familia y variantes
     ctx.font = `${styles.fontWeight} ${styles.fontStyle} ${scaledFontSize}px ${
       styles.fontFamily || "system-ui, -apple-system, sans-serif"
     }`;
@@ -78,8 +75,7 @@ export const SubtitleRenderer = ({
     let currentWidth = 0;
 
     words.forEach((wordTiming) => {
-      const word = wordTiming.word;
-      const wordWidth = ctx.measureText(word + " ").width;
+      const wordWidth = ctx.measureText(wordTiming.word + " ").width;
 
       if (currentWidth + wordWidth > maxWidth && currentLine.length > 0) {
         lines.push(currentLine);
@@ -104,15 +100,6 @@ export const SubtitleRenderer = ({
     const lines = splitIntoLines(wordTimings);
     const scaledFontSize = styles.fontSize * (containerHeight / 1080);
     const lineHeight = scaledFontSize * 1.2;
-    const scale = styles.fontSize < 30 ? styles.fontSize / 30 : 1;
-
-    // Preparar estilo de fuente para los subtítulos
-    const fontStyle = {
-      fontFamily: styles.fontFamily || "system-ui, -apple-system, sans-serif",
-      fontWeight: styles.fontWeight,
-      fontStyle: styles.fontStyle,
-      position: "relative",
-    };
 
     return (
       <div
@@ -135,8 +122,6 @@ export const SubtitleRenderer = ({
             borderRadius: Math.round(4 * (containerHeight / 1080)),
             maxWidth: `${containerWidth * 0.9}px`,
             width: "fit-content",
-            transform: scale < 1 ? `scale(${scale})` : "none",
-            transformOrigin: "center center",
           }}
         >
           {lines.map((line, lineIndex) => (
@@ -147,7 +132,10 @@ export const SubtitleRenderer = ({
                 marginBottom:
                   lineIndex < lines.length - 1 ? `${lineHeight * 0.2}px` : 0,
                 fontSize: `${scaledFontSize}px`,
-                ...fontStyle,
+                fontFamily:
+                  styles.fontFamily || "system-ui, -apple-system, sans-serif",
+                fontWeight: styles.fontWeight,
+                fontStyle: styles.fontStyle,
                 textAlign: styles.textAlign,
                 lineHeight: `${lineHeight}px`,
                 whiteSpace: "nowrap",
@@ -160,7 +148,10 @@ export const SubtitleRenderer = ({
                     color: wordTiming.isCurrentWord
                       ? styles.highlightColor
                       : styles.color,
-                    transition: "color 0.2s",
+                    WebkitTextStroke: "0.6px black",
+                    textStroke: "0.6px black",
+                    textShadow: "0 0 2px black",
+                    fontWeight: Math.min(600, styles.fontWeight),
                   }}
                 >
                   {wordTiming.word}

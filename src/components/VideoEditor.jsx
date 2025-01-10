@@ -18,6 +18,8 @@ import { SubtitleStyleControls } from "./SubtitleStyleControls";
 import { VideoExport } from "./VideoExport";
 import SubtitleRenderer from "./SubtitleRenderer";
 import TranscriptionProgress from "./TranscriptionProgress";
+import EditorControls from "./EditorControls";
+import { LanguageSelectionModal } from "./LanguageSelectionModal";
 
 export function VideoEditor() {
   const [videoFile, setVideoFile] = useState(null);
@@ -32,22 +34,243 @@ export function VideoEditor() {
   const [editingPhraseId, setEditingPhraseId] = useState(null);
   const [selectedPhraseIds, setSelectedPhraseIds] = useState([]);
   const [editingTime, setEditingTime] = useState(false);
+  const [isLanguageModalOpen, setIsLanguageModalOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedLanguage, setSelectedLanguage] = useState("auto");
+
   const [subtitleStyles, setSubtitleStyles] = useState({
     default: {
-      fontSize: 16,
+      fontSize: 36,
+      fontFamily: "'Inter', sans-serif",
+      color: "#FFFFFF",
+      backgroundColor: "rgba(0, 0, 0, 0.7)",
+      position: "bottom",
+      highlightColor: "#FFFFFF",
       fontWeight: 400,
       fontStyle: "normal",
-      fontFamily: "system-ui, -apple-system, sans-serif", // Añadir esta línea
-      color: "#FFFFFF",
-      backgroundColor: "rgba(0, 0, 0, 0.5)",
       textAlign: "center",
-      position: "bottom",
       textStroke: false,
-      highlightColor: "#FBBF24",
-      customPosition: null,
+      customPosition: {
+        y: 0.8,
+      },
     },
-    phraseStyles: {},
+    phraseStyles: {}, // Mantener este objeto vacío inicialmente
   });
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState(null);
+  const [dragEnd, setDragEnd] = useState(null);
+  const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [videoContainerStyle, setVideoContainerStyle] = useState({
+    width: "100%",
+    height: "100%",
+    position: "relative",
+  });
+
+  const handleAspectRatioChange = (newRatio) => {
+    setAspectRatio(newRatio);
+
+    if (!videoContainerRef.current || !videoRef.current) return;
+
+    const container = videoContainerRef.current;
+    const containerWidth = container.offsetWidth;
+    // Establecer un máximo de altura basado en el viewport
+    const maxHeight = window.innerHeight * 0.6; // 60% del viewport
+
+    let newHeight;
+    switch (newRatio) {
+      case "9:16": // Shorts
+        newHeight = Math.min((containerWidth * 16) / 9, maxHeight);
+        break;
+      case "1:1": // Square
+        newHeight = Math.min(containerWidth, maxHeight);
+        break;
+      default: // 16:9
+        newHeight = Math.min((containerWidth * 9) / 16, maxHeight);
+    }
+
+    setVideoContainerStyle({
+      width: "100%",
+      height: `${newHeight}px`,
+      position: "relative",
+    });
+  };
+
+  const handleStyleChange = (newStyle) => {
+    setSubtitleStyles((prev) => {
+      const updatedStyles = { ...prev };
+
+      // Actualizar estilo por defecto
+      updatedStyles.default = {
+        ...updatedStyles.default,
+        ...newStyle,
+      };
+
+      // Solo aplicar preset a frases seleccionadas
+      if (selectedPhraseIds.length > 0) {
+        selectedPhraseIds.forEach((id) => {
+          updatedStyles.phraseStyles[id] = {
+            ...updatedStyles.default,
+            ...newStyle,
+          };
+        });
+      }
+
+      return updatedStyles;
+    });
+  };
+
+  // Efecto para manejar atajos de teclado
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+
+      if (e.key === " ") {
+        e.preventDefault();
+        if (videoRef.current) {
+          if (isPlaying) {
+            videoRef.current.pause();
+          } else {
+            videoRef.current.play();
+          }
+          setIsPlaying(!isPlaying);
+        }
+      }
+
+      if (modKey && e.key === "z") {
+        e.preventDefault();
+        // Implementar lógica de undo aquí
+      }
+
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        if (videoRef.current) {
+          const newTime = Math.max(
+            0,
+            videoRef.current.currentTime - (e.shiftKey ? 10 : 5)
+          );
+          videoRef.current.currentTime = newTime;
+          setCurrentTime(newTime);
+        }
+      }
+
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        if (videoRef.current) {
+          const newTime = Math.min(
+            duration,
+            videoRef.current.currentTime + (e.shiftKey ? 10 : 5)
+          );
+          videoRef.current.currentTime = newTime;
+          setCurrentTime(newTime);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyPress);
+    return () => window.removeEventListener("keydown", handleKeyPress);
+  }, [isPlaying, duration]);
+
+  // Función para manejar el inicio del arrastre
+  const handleTimelineMouseDown = (e) => {
+    if (!timelineRef.current) return;
+
+    const timeline = timelineRef.current;
+    const rect = timeline.getBoundingClientRect();
+    const startX = (e.clientX - rect.left) / (50 * zoom);
+
+    setIsDragging(true);
+    setDragStart(startX);
+    setDragEnd(startX);
+
+    // Si no se está presionando Cmd/Ctrl, limpiar la selección previa
+    if (!e.metaKey && !e.ctrlKey) {
+      setSelectedPhraseIds([]);
+    }
+  };
+
+  // Función para manejar el movimiento durante el arrastre
+  const handleTimelineMouseMove = (e) => {
+    if (!isDragging || !timelineRef.current) return;
+
+    const timeline = timelineRef.current;
+    const rect = timeline.getBoundingClientRect();
+    const currentX = (e.clientX - rect.left) / (50 * zoom);
+
+    setDragEnd(currentX);
+
+    // Seleccionar frases que están dentro del rango de arrastre
+    const start = Math.min(dragStart, currentX);
+    const end = Math.max(dragStart, currentX);
+
+    const selectedPhrases = phrases.filter((phrase) => {
+      const phraseStart = phrase.start / 1000;
+      const phraseEnd = phrase.end / 1000;
+      return (
+        (phraseStart >= start && phraseStart <= end) ||
+        (phraseEnd >= start && phraseEnd <= end) ||
+        (phraseStart <= start && phraseEnd >= end)
+      );
+    });
+
+    const newSelectedIds = selectedPhrases.map((phrase) => phrase.id);
+
+    // Si se está presionando Cmd/Ctrl, agregar a la selección existente
+    if (e.metaKey || e.ctrlKey) {
+      setSelectedPhraseIds((prev) => [
+        ...new Set([...prev, ...newSelectedIds]),
+      ]);
+    } else {
+      setSelectedPhraseIds(newSelectedIds);
+    }
+  };
+
+  // Función para manejar el fin del arrastre
+  const handleTimelineMouseUp = () => {
+    setIsDragging(false);
+    setDragStart(null);
+    setDragEnd(null);
+  };
+
+  // Renderizar el área de selección en el timeline
+  const renderSelectionArea = () => {
+    if (!isDragging || dragStart === null || dragEnd === null) return null;
+
+    const left = Math.min(dragStart, dragEnd) * 50 * zoom;
+    const width = Math.abs(dragEnd - dragStart) * 50 * zoom;
+
+    return (
+      <div
+        className="absolute top-0 bottom-0 bg-pink-500 bg-opacity-20 pointer-events-none border border-pink-500 border-opacity-50"
+        style={{
+          left: `${left}px`,
+          width: `${width}px`,
+        }}
+      />
+    );
+  };
+
+  useEffect(() => {
+    // Cargar Bebas Neue de Google Fonts
+    const link = document.createElement("link");
+    link.href =
+      "https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap";
+    link.rel = "stylesheet";
+    document.head.appendChild(link);
+
+    // Cleanup al desmontar el componente
+    return () => {
+      document.head.removeChild(link);
+    };
+  }, []);
+
+  const isMacOS = () => {
+    return (
+      navigator.platform.toUpperCase().indexOf("MAC") >= 0 ||
+      navigator.userAgent.toUpperCase().indexOf("MAC") >= 0
+    );
+  };
 
   const [exportedVideoUrl, setExportedVideoUrl] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -62,7 +285,7 @@ export function VideoEditor() {
     { id: 2, type: "captions", name: "Subtítulos" },
   ];
 
-  const [videoContainerRef, setVideoContainerRef] = useState(null);
+  const videoContainerRef = useRef(null);
 
   // Improved timeline seek function
   const handleTimelineSeek = (event) => {
@@ -89,33 +312,31 @@ export function VideoEditor() {
     };
   }, [videoUrl]);
 
-  const calculateWordTiming = (phrase) => {
-    const phraseLength = phrase.end - phrase.start;
-    const words = phrase.text.split(" ");
-    const timePerWord = phraseLength / words.length;
-
-    return words.map((word, index) => ({
-      word,
-      start: phrase.start + timePerWord * index,
-      end: phrase.start + timePerWord * (index + 1),
-    }));
-  };
-
   const [transcriptionProgress, setTranscriptionProgress] = useState(0);
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (file) {
+      // Guardar el archivo y abrir modal de selección de idioma
+      setSelectedFile(file);
+      setIsLanguageModalOpen(true);
+    }
+  };
+
+  const handleLanguageSelect = async (language) => {
+    if (selectedFile) {
       try {
+        // Limpiar estado previo
         if (videoUrl) {
           URL.revokeObjectURL(videoUrl);
         }
-
         setPhrases([]);
         setTranscriptionProgress(0);
         setProcessingStatus("Preparando transcripción...");
-        setVideoFile(file);
-        const url = URL.createObjectURL(file);
+
+        // Configurar archivo y URL de video
+        setVideoFile(selectedFile);
+        const url = URL.createObjectURL(selectedFile);
         setVideoUrl(url);
         setIsTranscribing(true);
 
@@ -130,20 +351,25 @@ export function VideoEditor() {
           });
         }, 1000);
 
-        const result = await transcribeAudio(file, (progress) => {
-          setTranscriptionProgress(progress);
-          switch (progress) {
-            case 25:
-              setProcessingStatus("En cola...");
-              break;
-            case 60:
-              setProcessingStatus("Procesando audio...");
-              break;
-            case 100:
-              setProcessingStatus("¡Transcripción completada!");
-              break;
-          }
-        });
+        // Transcribir con el idioma seleccionado
+        const result = await transcribeAudio(
+          selectedFile,
+          (progress) => {
+            setTranscriptionProgress(progress);
+            switch (progress) {
+              case 25:
+                setProcessingStatus("En cola...");
+                break;
+              case 60:
+                setProcessingStatus("Procesando audio...");
+                break;
+              case 100:
+                setProcessingStatus("¡Transcripción completada!");
+                break;
+            }
+          },
+          { languageCode: language }
+        ); // Pasar idioma seleccionado
 
         if (result && result.phrases && result.phrases.length > 0) {
           clearInterval(progressInterval);
@@ -162,6 +388,7 @@ export function VideoEditor() {
         console.error("Error processing file:", error);
         setProcessingStatus("Error: " + error.message);
       } finally {
+        setIsLanguageModalOpen(false); // Cerrar modal
         setTimeout(() => {
           setIsTranscribing(false);
           setTranscriptionProgress(0);
@@ -201,12 +428,83 @@ export function VideoEditor() {
     }
   };
 
-  const handlePhraseEdit = (id, newText) => {
-    setPhrases((prevPhrases) =>
-      prevPhrases.map((phrase) =>
-        phrase.id === id ? { ...phrase, text: newText } : phrase
-      )
-    );
+  const handlePhraseEdit = (id, newText, splitPosition = null) => {
+    // Si hay una posición de división manual (Alt+Enter)
+    if (splitPosition !== null && splitPosition > 0) {
+      const firstPart = newText.slice(0, splitPosition);
+      const secondPart = newText.slice(splitPosition);
+
+      setPhrases((prevPhrases) => {
+        const originalPhrase = prevPhrases.find((p) => p.id === id);
+        const totalDuration = originalPhrase.end - originalPhrase.start;
+
+        // Calcula el tiempo de división basado en la posición del cursor
+        const splitTime =
+          originalPhrase.start +
+          totalDuration * (splitPosition / newText.length);
+
+        const newPhrases = [
+          {
+            ...originalPhrase,
+            text: firstPart.trim(),
+            start: originalPhrase.start,
+            end: splitTime,
+          },
+          {
+            ...originalPhrase,
+            id: `phrase-${Date.now()}`,
+            text: secondPart.trim(),
+            start: splitTime,
+            end: originalPhrase.end,
+          },
+        ];
+
+        return [...prevPhrases.filter((p) => p.id !== id), ...newPhrases].sort(
+          (a, b) => a.start - b.start
+        );
+      });
+
+      setEditingPhraseId(null);
+      return;
+    }
+
+    // Comportamiento para puntos
+    if (newText.includes(".")) {
+      const segments = newText.split(".").filter((text) => text.trim());
+
+      if (segments.length > 1) {
+        setPhrases((prevPhrases) => {
+          const originalPhrase = prevPhrases.find((p) => p.id === id);
+          const totalDuration = originalPhrase.end - originalPhrase.start;
+          const segmentDuration = totalDuration / segments.length;
+
+          const newPhrases = segments.map((text, index) => ({
+            ...originalPhrase,
+            id: index === 0 ? id : `phrase-${Date.now()}-${index}`,
+            text: text.trim() + (index < segments.length - 1 ? "." : ""),
+            start: originalPhrase.start + segmentDuration * index,
+            end: originalPhrase.start + segmentDuration * (index + 1),
+          }));
+
+          return [
+            ...prevPhrases.filter((p) => p.id !== id),
+            ...newPhrases,
+          ].sort((a, b) => a.start - b.start);
+        });
+      } else {
+        setPhrases((prev) =>
+          prev.map((phrase) =>
+            phrase.id === id ? { ...phrase, text: newText.trim() } : phrase
+          )
+        );
+      }
+    } else {
+      setPhrases((prev) =>
+        prev.map((phrase) =>
+          phrase.id === id ? { ...phrase, text: newText.trim() } : phrase
+        )
+      );
+    }
     setEditingPhraseId(null);
   };
 
@@ -225,55 +523,56 @@ export function VideoEditor() {
   };
 
   const handleSplitPhrase = (id) => {
-    const phraseIndex = phrases.findIndex((p) => p.id === id);
-    const phrase = phrases[phraseIndex];
-    const words = phrase.text.split(" ");
+    setPhrases((prev) => {
+      const currentPhrase = prev.find((p) => p.id === id);
+      if (!currentPhrase) return prev;
 
-    if (words.length < 2) return;
+      const words = currentPhrase.text.split(" ");
+      if (words.length < 2) return prev;
 
-    const midPoint = Math.floor(words.length / 2);
-    const timePerWord = (phrase.end - phrase.start) / words.length;
+      const midPoint = Math.ceil(words.length / 2);
+      const duration = currentPhrase.end - currentPhrase.start;
+      const midTime = currentPhrase.start + duration / 2;
 
-    const firstHalf = {
-      ...phrase,
-      text: words.slice(0, midPoint).join(" "),
-      end: phrase.start + timePerWord * midPoint,
-    };
+      const firstHalf = {
+        ...currentPhrase,
+        text: words.slice(0, midPoint).join(" "),
+        end: midTime,
+      };
 
-    const secondHalf = {
-      ...phrase,
-      id: `phrase-${Date.now()}`,
-      text: words.slice(midPoint).join(" "),
-      start: phrase.start + timePerWord * midPoint,
-      end: phrase.end,
-    };
+      const secondHalf = {
+        ...currentPhrase,
+        id: `phrase-${Date.now()}`,
+        text: words.slice(midPoint).join(" "),
+        start: midTime,
+        end: currentPhrase.end,
+      };
 
-    setPhrases((prevPhrases) => [
-      ...prevPhrases.slice(0, phraseIndex),
-      firstHalf,
-      secondHalf,
-      ...prevPhrases.slice(phraseIndex + 1),
-    ]);
+      return [...prev.filter((p) => p.id !== id), firstHalf, secondHalf].sort(
+        (a, b) => a.start - b.start
+      );
+    });
   };
 
+  // Función para unir frases
   const handleMergePhrases = (id) => {
-    const phraseIndex = phrases.findIndex((p) => p.id === id);
-    if (phraseIndex === phrases.length - 1) return;
+    setPhrases((prev) => {
+      const currentIndex = prev.findIndex((p) => p.id === id);
+      if (currentIndex === prev.length - 1) return prev;
 
-    const currentPhrase = phrases[phraseIndex];
-    const nextPhrase = phrases[phraseIndex + 1];
+      const currentPhrase = prev[currentIndex];
+      const nextPhrase = prev[currentIndex + 1];
 
-    const mergedPhrase = {
-      ...currentPhrase,
-      text: `${currentPhrase.text} ${nextPhrase.text}`,
-      end: nextPhrase.end,
-    };
+      const mergedPhrase = {
+        ...currentPhrase,
+        text: `${currentPhrase.text} ${nextPhrase.text}`,
+        end: nextPhrase.end,
+      };
 
-    setPhrases((prevPhrases) => [
-      ...prevPhrases.slice(0, phraseIndex),
-      mergedPhrase,
-      ...prevPhrases.slice(phraseIndex + 2),
-    ]);
+      const newPhrases = [...prev];
+      newPhrases.splice(currentIndex, 2, mergedPhrase);
+      return newPhrases;
+    });
   };
 
   const handleDeletePhrase = (id) => {
@@ -312,11 +611,15 @@ export function VideoEditor() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      {/* Container principal que cambia de dirección en breakpoint md */}
+      <EditorControls
+        onAspectRatioChange={handleAspectRatioChange}
+        onStyleChange={handleStyleChange} // Pasando el método para cambiar estilos
+        initialAspectRatio={aspectRatio}
+      />
       <div className="flex flex-col md:flex-row flex-1">
-        {/* Editor de Subtítulos */}
+        {/* Editor de Subtítulos (sin cambios) */}
         <div className="flex-none md:w-1/3 bg-black border-t md:border-t-0 md:border-r border-gray-700 flex flex-col order-2 md:order-1">
-          <div className="h-64 md:flex-1 p-4 overflow-y-auto">
+          <div className="flex-none h-[40vh] md:h-[60vh] p-4 overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4 text-white">
               Editor de Subtítulos
             </h3>
@@ -324,10 +627,9 @@ export function VideoEditor() {
               {phrases.map((phrase) => (
                 <div
                   key={phrase.id}
-                  className={`group flex items-start gap-4 p-2 rounded hover:bg-gray-700 ${
+                  className={`group relative flex items-start gap-4 p-2 rounded hover:bg-gray-700 ${
                     selectedPhraseIds.includes(phrase.id) ? "bg-gray-700" : ""
                   }`}
-                  onClick={(e) => handlePhraseSelection(phrase.id, e)}
                 >
                   {/* Tiempo de inicio */}
                   <div className="flex-shrink-0 w-24 md:w-32">
@@ -356,44 +658,82 @@ export function VideoEditor() {
                     )}
                   </div>
 
-                  {/* Texto */}
-                  <div className="flex-1">
+                  {/* Texto con edición en un clic */}
+                  <div
+                    className="flex-1 cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingPhraseId(phrase.id);
+                    }}
+                  >
                     {editingPhraseId === phrase.id ? (
                       <input
                         ref={editInputRef}
                         type="text"
                         className="w-full bg-black text-white px-2 py-1 rounded"
                         defaultValue={phrase.text}
-                        onBlur={(e) =>
-                          handlePhraseEdit(phrase.id, e.target.value)
-                        }
+                        title={`Presiona ${
+                          isMacOS() ? "⌘ Command" : "Alt"
+                        } + Enter para dividir el texto en la posición del cursor`}
+                        onBlur={(e) => {
+                          if (editingPhraseId) {
+                            handlePhraseEdit(phrase.id, e.target.value);
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
-                            handlePhraseEdit(phrase.id, e.target.value);
+                            if (e.altKey || e.metaKey) {
+                              handlePhraseEdit(
+                                phrase.id,
+                                e.target.value,
+                                e.target.selectionStart
+                              );
+                              e.preventDefault();
+                            } else {
+                              handlePhraseEdit(phrase.id, e.target.value);
+                            }
                           }
                         }}
                         autoFocus
                       />
                     ) : (
-                      <p className="text-white text-sm md:text-base">
-                        {phrase.text}
-                      </p>
+                      <div className="group/text relative">
+                        <p className="text-white text-sm md:text-base hover:text-pink-400 transition-colors">
+                          {phrase.text}
+                        </p>
+                        <div className="invisible group-hover/text:visible absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-xs text-white px-2 py-1 rounded shadow-lg whitespace-nowrap z-10">
+                          {`Clic para editar (${
+                            isMacOS() ? "⌘ + Enter" : "Alt + Enter"
+                          } para dividir)`}
+                        </div>
+                      </div>
                     )}
                   </div>
 
-                  {/* Acciones - Ocultas en móvil por defecto, visibles al tocar */}
-                  <div className="flex-shrink-0 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* Acciones con tooltips */}
+                  <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                      onClick={() => setEditingPhraseId(phrase.id)}
-                      className="p-1 hover:bg-gray-600 rounded text-pink-600 hover:text-white"
-                      title="Editar texto"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingPhraseId(phrase.id);
+                      }}
+                      className="p-1 hover:bg-gray-600 rounded text-pink-600 hover:text-white relative group/button"
+                      title={`Editar texto (${
+                        isMacOS() ? "⌘ + Enter" : "Alt + Enter"
+                      } para dividir)`}
                     >
                       <Edit2 size={16} />
+                      <div className="invisible group-hover/button:visible absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-xs text-white px-2 py-1 rounded shadow-lg whitespace-nowrap z-10">
+                        {`Editar texto (${
+                          isMacOS() ? "⌘ + Enter" : "Alt + Enter"
+                        } para dividir)`}
+                      </div>
                     </button>
                     <button
                       onClick={() => handleSplitPhrase(phrase.id)}
                       className="p-1 hover:bg-gray-600 rounded text-pink-600 hover:text-white ml-1"
-                      title="Dividir frase"
+                      title="Dividir frase a la mitad"
                     >
                       <ArrowLeftRight size={16} />
                     </button>
@@ -454,90 +794,144 @@ export function VideoEditor() {
             selectedPhraseIds={selectedPhraseIds}
           />
         </div>
-        {/* Video Preview - Orden cambiado para móvil */}
+
+        {/* Video Preview */}
         <div className="flex-none md:flex-1 flex flex-col order-1 md:order-2">
-          <div className="h-64 md:h-full p-2 md:p-4 bg-black">
-            <div className="h-full">
-              <div className="relative w-full h-full bg-white rounded-lg overflow-hidden">
-                {videoUrl ? (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <video
-                      ref={videoRef}
-                      src={videoUrl}
-                      className="w-full h-full object-contain"
-                      onTimeUpdate={() =>
-                        setCurrentTime(videoRef.current?.currentTime || 0)
+          <div className="h-48 md:h-auto p-2 md:p-4 bg-black">
+            <div
+              ref={videoContainerRef}
+              className="relative mx-auto bg-gray-900 rounded-lg overflow-hidden min-h-[300px] max-h-[60vh]" // Agregado min-h-[300px]
+              style={videoContainerStyle}
+            >
+              {videoUrl ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <video
+                    ref={videoRef}
+                    src={videoUrl}
+                    className="w-full h-full object-contain"
+                    onTimeUpdate={() =>
+                      setCurrentTime(videoRef.current?.currentTime || 0)
+                    }
+                    onLoadedMetadata={(e) => {
+                      setDuration(e.target.duration);
+                      const videoWidth = e.target.videoWidth;
+                      const videoHeight = e.target.videoHeight;
+                      const ratio = videoWidth / videoHeight;
+
+                      let detectedRatio;
+                      if (ratio >= 16 / 9) {
+                        detectedRatio = "16:9";
+                      } else if (ratio <= 9 / 16) {
+                        detectedRatio = "9:16";
+                      } else if (Math.abs(ratio - 1) < 0.1) {
+                        detectedRatio = "1:1";
+                      } else {
+                        const ratios = [
+                          { id: "16:9", value: 16 / 9 },
+                          { id: "9:16", value: 9 / 16 },
+                          { id: "1:1", value: 1 },
+                        ];
+                        detectedRatio = ratios.reduce((prev, curr) =>
+                          Math.abs(curr.value - ratio) <
+                          Math.abs(prev.value - ratio)
+                            ? curr
+                            : prev
+                        ).id;
                       }
-                      onLoadedMetadata={(e) => {
-                        setDuration(e.target.duration);
-                      }}
-                      playsInline // Forzar reproducción inline en iOS
-                      webkit-playsinline="true" // Soporte para versiones antiguas de iOS
-                      x5-playsinline="true" // Soporte para navegadores basados en X5
-                      controlsList="nodownload nofullscreen noremoteplayback" // Prevenir controles nativos
-                      disablePictureInPicture // Deshabilitar picture-in-picture
-                      preload="auto" // Precargar el video
-                    />
-                    <TranscriptionProgress
-                      isTranscribing={isTranscribing}
-                      status={processingStatus}
-                      progress={transcriptionProgress}
-                    />
-                    <div className="absolute inset-0">
-                      {phrases.map((phrase) => {
-                        const isPhraseVisible =
-                          currentTime * 1000 >= phrase.start &&
-                          currentTime * 1000 <= phrase.end;
 
-                        if (!isPhraseVisible) return null;
+                      setAspectRatio(detectedRatio);
+                      handleAspectRatioChange(detectedRatio);
+                    }}
+                    playsInline
+                    webkit-playsinline="true"
+                    x5-playsinline="true"
+                    controlsList="nodownload nofullscreen noremoteplayback"
+                    disablePictureInPicture
+                    preload="auto"
+                  />
+                  <TranscriptionProgress
+                    isTranscribing={isTranscribing}
+                    status={processingStatus}
+                    progress={transcriptionProgress}
+                  />
+                  <div className="absolute inset-0">
+                    {phrases.map((phrase) => {
+                      const isPhraseVisible =
+                        currentTime * 1000 >= phrase.start &&
+                        currentTime * 1000 <= phrase.end;
 
-                        const phraseStyles =
-                          subtitleStyles.phraseStyles[phrase.id] ||
-                          subtitleStyles.default;
+                      if (!isPhraseVisible) return null;
 
-                        const videoElement = videoRef.current;
-                        const videoWidth = videoElement.videoWidth;
-                        const videoHeight = videoElement.videoHeight;
-                        const containerWidth = videoElement.clientWidth;
-                        const containerHeight = videoElement.clientHeight;
-                        const scale = Math.min(
-                          containerWidth / videoWidth,
-                          containerHeight / videoHeight
-                        );
+                      const phraseStyles =
+                        subtitleStyles.phraseStyles[phrase.id] ||
+                        subtitleStyles.default;
 
-                        const scaledWidth = videoWidth * scale;
-                        const scaledHeight = videoHeight * scale;
+                      const videoElement = videoRef.current;
+                      if (!videoElement) return null;
 
-                        return (
-                          <SubtitleRenderer
-                            key={phrase.id}
-                            phrase={phrase}
-                            currentTime={currentTime}
-                            styles={phraseStyles}
-                            containerWidth={scaledWidth}
-                            containerHeight={scaledHeight}
-                          />
-                        );
-                      })}
-                    </div>
+                      const videoWidth = videoElement.videoWidth;
+                      const videoHeight = videoElement.videoHeight;
+                      const containerWidth = videoElement.clientWidth;
+                      const containerHeight = videoElement.clientHeight;
+                      const scale = Math.min(
+                        containerWidth / videoWidth,
+                        containerHeight / videoHeight
+                      );
+
+                      const scaledWidth = videoWidth * scale;
+                      const scaledHeight = videoHeight * scale;
+
+                      return (
+                        <SubtitleRenderer
+                          key={phrase.id}
+                          phrase={phrase}
+                          currentTime={currentTime * 1000}
+                          styles={phraseStyles}
+                          containerWidth={scaledWidth}
+                          containerHeight={scaledHeight}
+                        />
+                      );
+                    })}
                   </div>
-                ) : (
-                  <label className="absolute inset-0 flex items-center justify-center text-gray-500 cursor-pointer">
-                    <input
-                      type="file"
-                      accept="video/*"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                    <div className="text-center">
-                      <Video className="w-12 h-12 mx-auto mb-2" />
-                      <p>Arrastra y suelta un video o haz clic para subir</p>
-                    </div>
-                  </label>
-                )}
-              </div>
+                </div>
+              ) : (
+                <label className="absolute inset-0 flex items-center justify-center text-gray-500 cursor-pointer">
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <div className="text-center">
+                    <Video className="w-12 h-12 mx-auto mb-2" />
+                    <p>Arrastra y suelta un video o haz clic para subir</p>
+                  </div>
+                </label>
+              )}
+              <LanguageSelectionModal
+                isOpen={isLanguageModalOpen}
+                onClose={() => setIsLanguageModalOpen(false)}
+                onLanguageSelect={handleLanguageSelect}
+              />
             </div>
           </div>
+          {videoUrl && (
+            <button
+              onClick={() => {
+                // Limpiar estado del video
+                URL.revokeObjectURL(videoUrl);
+                setVideoUrl("");
+                setVideoFile(null);
+                setPhrases([]);
+                setCurrentTime(0);
+                setDuration(0);
+                setIsPlaying(false);
+              }}
+              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-black"
+            >
+              Eliminar Video
+            </button>
+          )}
 
           {videoUrl && (
             <VideoExport
@@ -551,7 +945,7 @@ export function VideoEditor() {
       </div>
 
       {/* Timeline */}
-      <div className="h-48 md:h-64 bg-black border-t border-gray-800 flex flex-col">
+      <div className="h-auto md:h-auto pb-5 bg-black border-t border-gray-800 flex flex-col">
         {/* Controls */}
         <div className="flex items-center px-2 md:px-4 py-2 border-b border-gray-800 flex-shrink-0">
           <div className="flex items-center space-x-2">
@@ -654,9 +1048,9 @@ export function VideoEditor() {
         </div>
 
         {/* Timeline tracks */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex overflow-hidden">
           {/* Track labels */}
-          <div className="w-24 md:w-48 flex-shrink-0 bg-black border-r border-gray-800">
+          <div className="w-24 md:w-48 py-5 flex-shrink-0 bg-black border-r border-gray-800">
             {tracks.map((track) => (
               <div
                 key={track.id}
@@ -674,45 +1068,35 @@ export function VideoEditor() {
           </div>
 
           {/* Timeline grid */}
-          <div className="flex-1 overflow-x-scroll">
+          <div className="flex-1 py-5 overflow-x-scroll">
             <div
               ref={timelineRef}
-              className="h-full relative cursor-pointer"
+              className={`h-full relative select-none ${
+                isDragging ? "cursor-crosshair" : "cursor-default"
+              }`}
               style={{
                 width: `${Math.max(duration * 50 * zoom, 800)}px`,
               }}
-              onClick={handleTimelineSeek}
+              onMouseDown={handleTimelineMouseDown}
+              onMouseMove={handleTimelineMouseMove}
+              onMouseUp={handleTimelineMouseUp}
+              onMouseLeave={handleTimelineMouseUp}
             >
               {tracks.map((track) => (
                 <div
                   key={track.id}
                   className="h-16 border-b border-gray-800 relative"
                 >
-                  {track.type === "video" && videoUrl && (
-                    <div
-                      className="absolute h-full bg-pink-500 bg-opacity-20 border-l border-r border-gray-500"
-                      style={{
-                        left: 0,
-                        width: `${duration * 50 * zoom}px`,
-                      }}
-                    >
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xs text-white truncate px-2">
-                          Video Track
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
                   {track.type === "captions" &&
                     phrases.map((phrase) => (
                       <div
                         key={phrase.id}
-                        className={`absolute h-full bg-blue-500 bg-opacity-20 border-l border-r border-blue-500 hover:bg-opacity-30 cursor-pointer ${
+                        className={`absolute h-full transition-colors duration-150
+                        ${
                           selectedPhraseIds.includes(phrase.id)
-                            ? "bg-opacity-40"
-                            : ""
-                        }`}
+                            ? "bg-blue-500 bg-opacity-40 border-blue-500"
+                            : "bg-blue-500 bg-opacity-20 border-blue-500 hover:bg-opacity-30"
+                        } border-l border-r cursor-pointer`}
                         style={{
                           left: `${(phrase.start / 1000) * 50 * zoom}px`,
                           width: `${
@@ -736,9 +1120,33 @@ export function VideoEditor() {
                     ))}
                 </div>
               ))}
+
+              {/* Rectángulo de selección tipo marquee */}
+              {isDragging && dragStart !== null && dragEnd !== null && (
+                <div
+                  className="absolute top-0 bottom-0 pointer-events-none z-10"
+                  style={{
+                    left: `${Math.min(dragStart, dragEnd) * 50 * zoom}px`,
+                    width: `${Math.abs(dragEnd - dragStart) * 50 * zoom}px`,
+                  }}
+                >
+                  {/* Fondo semi-transparente */}
+                  <div className="absolute inset-0 bg-pink-500 bg-opacity-10" />
+
+                  {/* Bordes animados */}
+                  <div className="absolute inset-0 border border-pink-500 border-opacity-75">
+                    {/* Esquinas animadas */}
+                    <div className="absolute -left-0.5 -top-0.5 w-2 h-2 border-t-2 border-l-2 border-pink-500 animate-pulse" />
+                    <div className="absolute -right-0.5 -top-0.5 w-2 h-2 border-t-2 border-r-2 border-pink-500 animate-pulse" />
+                    <div className="absolute -left-0.5 -bottom-0.5 w-2 h-2 border-b-2 border-l-2 border-pink-500 animate-pulse" />
+                    <div className="absolute -right-0.5 -bottom-0.5 w-2 h-2 border-b-2 border-r-2 border-pink-500 animate-pulse" />
+                  </div>
+                </div>
+              )}
+
               {/* Playhead */}
               <div
-                className="absolute top-0 bottom-0 w-0.5 bg-pink-500"
+                className="absolute top-0 bottom-0 w-0.5 bg-pink-500 z-20"
                 style={{ left: `${currentTime * 50 * zoom}px` }}
               />
             </div>

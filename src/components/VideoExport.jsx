@@ -1,5 +1,26 @@
 import React, { useState, useRef } from "react";
-import { Save } from "lucide-react";
+import { Save, Lock, Check } from "lucide-react";
+
+const ExportOptions = {
+  FREE: {
+    maxDuration: 5 * 60, // 5 minutos
+    resolution: "720p",
+    watermark: true,
+    formats: ["mp4"],
+  },
+  PRO: {
+    maxDuration: 60 * 60, // 1 hora
+    resolution: "1080p",
+    watermark: false,
+    formats: ["mp4", "webm", "avi"],
+  },
+  ENTERPRISE: {
+    maxDuration: null, // Sin límite
+    resolution: "4K",
+    watermark: false,
+    formats: ["mp4", "webm", "avi", "mov"],
+  },
+};
 
 export function VideoExport({
   videoUrl,
@@ -7,6 +28,8 @@ export function VideoExport({
   subtitleStyles,
   videoRef: mainVideoRef,
 }) {
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState("FREE");
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -20,173 +43,128 @@ export function VideoExport({
     const phraseLength = phrase.end - phrase.start;
     const words = phrase.text.split(" ");
     const timePerWord = phraseLength / words.length;
+    const mediaRecorderDelay = 50;
 
     return words.map((word, index) => ({
       word,
-      start: phrase.start + timePerWord * index,
-      end: phrase.start + timePerWord * (index + 1),
+      start: phrase.start + timePerWord * index + mediaRecorderDelay,
+      end: phrase.start + timePerWord * (index + 1) + mediaRecorderDelay,
       isCurrentWord:
-        currentTime >= phrase.start + timePerWord * index &&
-        currentTime <= phrase.start + timePerWord * (index + 1),
+        currentTime >=
+          phrase.start + timePerWord * index + mediaRecorderDelay &&
+        currentTime <=
+          phrase.start + timePerWord * (index + 1) + mediaRecorderDelay,
     }));
   };
 
   const drawSubtitles = (ctx, canvas, currentTime, phrases, subtitleStyles) => {
-    const currentTimeMs = currentTime * 1000;
-    const currentPhrases = phrases.filter(
-      (phrase) => currentTimeMs >= phrase.start && currentTimeMs <= phrase.end
+    const currentTimeMs = Math.round(currentTime * 1000);
+    const initialDelay = 1000; // Introduce a delay of 1 second to skip the initial "rebobinado"
+    const bufferTime = 50; // Keep buffer time reasonable to prevent early disappearance
+
+    // Skip the first second of the video to handle the initial glitch
+    if (currentTimeMs < initialDelay) return;
+
+    // Adjust currentTimeMs by subtracting the initial delay
+    const adjustedTime = currentTimeMs - initialDelay;
+
+    // Filter to get the current phrase only
+    const currentPhrase = phrases.find(
+      (phrase) =>
+        adjustedTime >= phrase.start && adjustedTime <= phrase.end + bufferTime // Allow a small margin at the end
     );
 
-    currentPhrases.forEach((phrase) => {
-      // Obtener estilos para esta frase específica
-      const phraseStyles =
-        subtitleStyles.phraseStyles[phrase.id] || subtitleStyles.default;
+    if (!currentPhrase) return; // If no current phrase, do nothing
 
-      // Calcular tamaño de fuente escalado
-      const fontSize = Math.round(
-        phraseStyles.fontSize * (canvas.height / 1080)
-      );
-      const fontWeight = phraseStyles.fontWeight;
-      const fontStyle = phraseStyles.fontStyle;
+    const phraseStyles =
+      subtitleStyles.phraseStyles[currentPhrase.id] || subtitleStyles.default;
+    const fontSize = Math.round(phraseStyles.fontSize * (canvas.height / 1080));
+    ctx.font = `${phraseStyles.fontWeight} ${
+      phraseStyles.fontStyle
+    } ${fontSize}px ${phraseStyles.fontFamily || "system-ui, sans-serif"}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
 
-      // Configurar fuente
-      // En la función drawSubtitles
-      ctx.font = `${phraseStyles.fontWeight} ${
-        phraseStyles.fontStyle
-      } ${fontSize}px ${phraseStyles.fontFamily || "system-ui, sans-serif"}`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
+    const padding = Math.round(20 * (canvas.height / 1080));
+    const lineHeight = fontSize * 1.2;
+    let verticalPosition =
+      phraseStyles.customPosition && phraseStyles.customPosition.y !== undefined
+        ? phraseStyles.customPosition.y * canvas.height
+        : canvas.height - padding - lineHeight / 2;
 
-      // Calcular posición vertical
-      let verticalPosition;
-      const padding = Math.round(20 * (canvas.height / 1080));
-      const lineHeight = fontSize * 1.2;
+    const wordTimings = calculateWordTiming(currentPhrase, adjustedTime);
+    const words = wordTimings.map((wt) => wt.word);
+    const lines = [];
+    let currentLine = [];
+    let currentLineWidth = 0;
+    const maxWidth = canvas.width * 0.9;
 
-      // Manejar posición personalizada
-      if (
-        phraseStyles.customPosition &&
-        phraseStyles.customPosition.y !== undefined
-      ) {
-        verticalPosition = phraseStyles.customPosition.y * canvas.height;
-      } else {
-        // Posiciones predeterminadas
-        switch (phraseStyles.position) {
-          case "top":
-            verticalPosition = padding + lineHeight / 2;
-            break;
-          case "middle":
-            verticalPosition = canvas.height / 2;
-            break;
-          case "bottom":
-          default:
-            verticalPosition = canvas.height - padding - lineHeight / 2;
-        }
-      }
-
-      // Calcular dimensiones del texto
-      const wordTimings = calculateWordTiming(phrase, currentTimeMs);
-
-      // Preparar para dibujar texto multilínea si es necesario
-      const maxWidth = canvas.width * 0.9;
-      const words = wordTimings.map((wt) => wt.word);
-
-      // Dividir palabras en líneas
-      const lines = [];
-      let currentLine = [];
-      let currentLineWidth = 0;
-
-      words.forEach((word) => {
-        const wordWidth = ctx.measureText(word + " ").width;
-
-        if (currentLineWidth + wordWidth > maxWidth) {
-          // Comenzar nueva línea
-          lines.push(currentLine);
-          currentLine = [word];
-          currentLineWidth = ctx.measureText(word + " ").width;
-        } else {
-          currentLine.push(word);
-          currentLineWidth += wordWidth;
-        }
-      });
-
-      // Añadir última línea
-      if (currentLine.length > 0) {
+    words.forEach((word) => {
+      const wordWidth = ctx.measureText(word + " ").width;
+      if (currentLineWidth + wordWidth > maxWidth) {
         lines.push(currentLine);
+        currentLine = [word];
+        currentLineWidth = wordWidth;
+      } else {
+        currentLine.push(word);
+        currentLineWidth += wordWidth;
       }
+    });
 
-      // Dibujar fondo para todas las líneas
-      if (phraseStyles.backgroundColor !== "transparent") {
-        ctx.fillStyle = phraseStyles.backgroundColor;
+    if (currentLine.length > 0) {
+      lines.push(currentLine);
+    }
 
-        lines.forEach((line, lineIndex) => {
-          const lineText = line.join(" ");
-          const lineWidth = ctx.measureText(lineText).width;
-          const lineHeight = fontSize * 1.2;
-
-          // Calcular posición de cada línea
-          const lineVerticalPosition =
-            verticalPosition +
-            (lineIndex - (lines.length - 1) / 2) * lineHeight;
-
-          const x = (canvas.width - lineWidth) / 2 - padding / 2;
-          const y = lineVerticalPosition - lineHeight / 2;
-          const width = lineWidth + padding;
-          const height = lineHeight + padding / 2;
-
-          // Dibujar fondo con bordes redondeados
-          const radius = Math.round(4 * (canvas.height / 1080));
-          ctx.beginPath();
-          ctx.roundRect(x, y, width, height, radius);
-          ctx.fill();
-        });
-      }
-
-      // Dibujar texto con palabras resaltadas
+    if (phraseStyles.backgroundColor !== "transparent") {
+      ctx.fillStyle = phraseStyles.backgroundColor;
       lines.forEach((line, lineIndex) => {
         const lineText = line.join(" ");
         const lineWidth = ctx.measureText(lineText).width;
-
-        // Calcular posición de cada línea
         const lineVerticalPosition =
-          verticalPosition +
-          (lineIndex - (lines.length - 1) / 2) * (fontSize * 1.2);
+          verticalPosition + (lineIndex - (lines.length - 1) / 2) * lineHeight;
+        const x = (canvas.width - lineWidth) / 2 - padding / 2;
+        const y = lineVerticalPosition - lineHeight / 2;
+        const width = lineWidth + padding;
+        const height = lineHeight + padding / 2;
+        const radius = Math.round(4 * (canvas.height / 1080));
 
-        let xOffset = (canvas.width - lineWidth) / 2;
-
-        line.forEach((word, wordIndex) => {
-          const wordTiming = wordTimings.find((wt) => wt.word === word);
-
-          // Color de la palabra
-          ctx.fillStyle = wordTiming.isCurrentWord
-            ? phraseStyles.highlightColor
-            : phraseStyles.color;
-
-          // Dibujar palabra
-          const wordMetrics = ctx.measureText(word + " ");
-          ctx.fillText(
-            word,
-            xOffset + wordMetrics.width / 2,
-            lineVerticalPosition
-          );
-
-          xOffset += wordMetrics.width;
-        });
+        ctx.beginPath();
+        ctx.roundRect(x, y, width, height, radius);
+        ctx.fill();
       });
+    }
 
-      // Dibujar borde de texto si está activado
-      if (phraseStyles.textStroke) {
+    lines.forEach((line, lineIndex) => {
+      const lineText = line.join(" ");
+      const lineVerticalPosition =
+        verticalPosition + (lineIndex - (lines.length - 1) / 2) * lineHeight;
+      let xOffset = (canvas.width - ctx.measureText(lineText).width) / 2;
+
+      line.forEach((word) => {
+        const wordTiming = wordTimings.find((wt) => wt.word === word);
+        ctx.fillStyle = wordTiming.isCurrentWord
+          ? phraseStyles.highlightColor
+          : phraseStyles.color;
+
+        // Agregar borde negro
         ctx.strokeStyle = "black";
-        ctx.lineWidth = Math.round(3 * (canvas.height / 1080));
+        ctx.lineWidth = Math.max(2, fontSize * 0.08);
+        ctx.lineJoin = "round";
+        ctx.miterLimit = 2;
+        ctx.strokeText(
+          word,
+          xOffset + ctx.measureText(word).width / 2,
+          lineVerticalPosition
+        );
 
-        lines.forEach((line, lineIndex) => {
-          const lineText = line.join(" ");
-          const lineVerticalPosition =
-            verticalPosition +
-            (lineIndex - (lines.length - 1) / 2) * (fontSize * 1.2);
-
-          ctx.strokeText(lineText, canvas.width / 2, lineVerticalPosition);
-        });
-      }
+        // Texto principal
+        ctx.fillText(
+          word,
+          xOffset + ctx.measureText(word).width / 2,
+          lineVerticalPosition
+        );
+        xOffset += ctx.measureText(word + " ").width;
+      });
     });
   };
 
@@ -199,19 +177,16 @@ export function VideoExport({
       "video/webm;codecs=vp8",
       "video/webm",
     ];
-
     for (const type of mimeTypes) {
       if (MediaRecorder.isTypeSupported(type)) {
         return type;
       }
     }
-
-    return "";
+    throw new Error("No supported MIME type found.");
   };
 
-  const startExport = async () => {
+  const startExport = async (planDetails) => {
     if (!videoUrl || !mainVideoRef.current) return;
-
     try {
       const originalVideoElement = mainVideoRef.current;
 
@@ -219,17 +194,45 @@ export function VideoExport({
         canvasRef.current = document.createElement("canvas");
         ctxRef.current = canvasRef.current.getContext("2d");
       }
-
       const canvas = canvasRef.current;
       const ctx = ctxRef.current;
 
-      canvas.width = originalVideoElement.videoWidth;
-      canvas.height = originalVideoElement.videoHeight;
+      // Mapeo de aspect ratios a resoluciones
+      const resolutionMap = {
+        "16:9": { width: 1920, height: 1080 },
+        "9:16": { width: 1080, height: 1920 },
+        "1:1": { width: 1080, height: 1080 },
+      };
+
+      // Obtener el aspect ratio actual del video
+      const currentAspectRatio =
+        mainVideoRef.current.videoWidth > mainVideoRef.current.videoHeight
+          ? "16:9"
+          : mainVideoRef.current.videoWidth === mainVideoRef.current.videoHeight
+          ? "1:1"
+          : "9:16";
+
+      // Usar el aspect ratio seleccionado o el detectado
+      const aspectRatio = planDetails.resolution || currentAspectRatio;
+
+      // Cambiar aquí la destructuración
+      const resolution = resolutionMap[aspectRatio] || resolutionMap["9:16"];
+      const width = resolution.width;
+      const height = resolution.height;
+
+      canvas.width = width;
+      canvas.height = height;
 
       const audioContext = new (window.AudioContext ||
         window.webkitAudioContext)();
       const clonedVideoElement = originalVideoElement.cloneNode(true);
-      clonedVideoElement.currentTime = 0;
+
+      await new Promise((resolve) => {
+        clonedVideoElement.addEventListener("loadeddata", resolve, {
+          once: true,
+        });
+        clonedVideoElement.currentTime = 0;
+      });
 
       const source = audioContext.createMediaElementSource(clonedVideoElement);
       const destination = audioContext.createMediaStreamDestination();
@@ -238,7 +241,6 @@ export function VideoExport({
 
       const videoStream = canvas.captureStream(30);
       const audioStream = destination.stream;
-
       const combinedStream = new MediaStream([
         ...videoStream.getTracks(),
         ...audioStream.getTracks(),
@@ -247,7 +249,7 @@ export function VideoExport({
       const mimeType = getMimeType();
       const options = {
         mimeType: mimeType,
-        videoBitsPerSecond: 8000000, // 8 Mbps for better quality
+        videoBitsPerSecond: 8000000,
       };
 
       mediaRecorderRef.current = new MediaRecorder(combinedStream, options);
@@ -262,16 +264,10 @@ export function VideoExport({
       mediaRecorderRef.current.onstop = async () => {
         if (chunksRef.current.length > 0) {
           const blob = new Blob(chunksRef.current, { type: mimeType });
-
-          // Convert to MP4 if necessary using MediaRecorder's native output
-          const finalBlob = mimeType.includes("mp4")
-            ? blob
-            : await convertToMp4(blob);
-
-          const url = URL.createObjectURL(finalBlob);
+          const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
-          a.download = "video_with_subtitles.mp4";
+          a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
@@ -285,11 +281,10 @@ export function VideoExport({
         setProgress(100);
       };
 
-      mediaRecorderRef.current.start(1000); // Capture chunks every second
       setIsExporting(true);
       isExportingRef.current = true;
       setProgress(0);
-
+      mediaRecorderRef.current.start();
       await clonedVideoElement.play();
 
       const renderFrame = () => {
@@ -331,68 +326,89 @@ export function VideoExport({
     }
   };
 
-  // Helper function to convert WebM to MP4 if necessary
-  const convertToMp4 = async (blob) => {
-    // If the browser supports MP4 recording directly, return the blob as is
-    if (blob.type.includes("mp4")) {
-      return blob;
-    }
-
-    // Otherwise, we need to use MediaRecorder again to convert the format
-    const video = document.createElement("video");
-    video.src = URL.createObjectURL(blob);
-    await video.play();
-
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-
-    const stream = canvas.captureStream();
-    const mediaRecorder = new MediaRecorder(stream, {
-      mimeType: "video/mp4",
-    });
-
-    const chunks = [];
-    return new Promise((resolve) => {
-      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-      mediaRecorder.onstop = () =>
-        resolve(new Blob(chunks, { type: "video/mp4" }));
-
-      const drawFrame = () => {
-        if (video.ended) {
-          mediaRecorder.stop();
-          return;
-        }
-        ctx.drawImage(video, 0, 0);
-        requestAnimationFrame(drawFrame);
-      };
-
-      mediaRecorder.start();
-      drawFrame();
-    });
+  const handleExport = () => {
+    setShowExportModal(true);
   };
 
-  React.useEffect(() => {
-    return () => {
-      isExportingRef.current = false;
-      if (mediaRecorderRef.current?.state === "recording") {
-        mediaRecorderRef.current.stop();
-      }
-    };
-  }, []);
+  const confirmExport = () => {
+    const planDetails = ExportOptions[selectedPlan];
+
+    if (selectedPlan === "FREE") {
+      startExport(planDetails);
+      setShowExportModal(false);
+    } else {
+      alert(`Actualiza a plan ${selectedPlan} para estas características`);
+    }
+  };
+
+  const ExportModal = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-gray-800 p-6 rounded-lg max-w-md w-full">
+        <h2 className="text-xl font-bold mb-4 text-white">
+          Opciones de Exportación
+        </h2>
+
+        {Object.entries(ExportOptions).map(([plan, details]) => (
+          <div
+            key={plan}
+            className={`flex items-center justify-between p-4 mb-2 rounded 
+              ${
+                selectedPlan === plan
+                  ? "bg-pink-600 text-white"
+                  : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+              }`}
+            onClick={() => setSelectedPlan(plan)}
+          >
+            <div>
+              <h3 className="font-bold">{plan} Plan</h3>
+              <ul className="text-sm">
+                <li>
+                  Duración máx:{" "}
+                  {details.maxDuration
+                    ? `${details.maxDuration / 60} min`
+                    : "Ilimitado"}
+                </li>
+                <li>Resolución: {details.resolution}</li>
+                <li>Marca de agua: {details.watermark ? "Sí" : "No"}</li>
+              </ul>
+            </div>
+            {selectedPlan === plan && <Check />}
+            {plan !== "FREE" && <Lock className="text-yellow-500" />}
+          </div>
+        ))}
+
+        <div className="flex justify-end space-x-2 mt-4">
+          <button
+            onClick={() => setShowExportModal(false)}
+            className="bg-gray-600 text-white px-4 py-2 rounded"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={confirmExport}
+            className="bg-pink-600 text-white px-4 py-2 rounded"
+          >
+            Exportar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <button
-      onClick={startExport}
-      disabled={isExporting}
-      className="inline-flex items-center justify-center w-full mx-auto px-4 py-2 bg-pink-600 text-white rounded-md hover:bg-black disabled:opacity-50"
-    >
-      <Save className="w-4 h-4 mr-2" />
-      <span className="text-center font-bold">
-        {isExporting ? `Exporting ${progress}%` : "Export Video"}
-      </span>
-    </button>
+    <>
+      <button
+        onClick={handleExport}
+        className="inline-flex items-center justify-center w-full mx-auto px-4 py-2 bg-pink-600 text-white rounded-md hover:bg-black"
+      >
+        <Save className="w-4 h-4 mr-2" />
+        <span className="text-center font-bold">
+          {isExporting ? `Exportando... ${progress}%` : "Exportar video"}
+        </span>
+      </button>
+
+      {showExportModal && <ExportModal />}
+    </>
   );
 }
 
