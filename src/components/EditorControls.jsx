@@ -55,7 +55,7 @@ const EditorControls = ({
 
   return (
     <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-4 bg-gray-900 rounded-lg">
-      <div className="flex items-center gap-6">
+      <div className="flex flex-col md:flex-row items-center gap-6">
         {/* Control de Aspect Ratio */}
         <div className="flex items-center gap-2">
           <AspectRatioIcon className="w-5 h-5 text-pink-500" />
@@ -85,6 +85,7 @@ const EditorControls = ({
               // Usar onStyleChange pasado desde el padre
               onStyleChange(stylePresets[selectedStyle]);
             }}
+            className="bg-gray-800 text-white px-3 py-2 rounded-md border border-gray-700 min-w-[200px]"
           >
             <option value="modern">Modern YouTube</option>
             <option value="highlight">Con Highlight</option>

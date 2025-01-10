@@ -797,7 +797,7 @@ export function VideoEditor() {
 
         {/* Video Preview */}
         <div className="flex-none md:flex-1 flex flex-col order-1 md:order-2">
-          <div className="h-48 md:h-auto p-2 md:p-4 bg-black">
+          <div className="h-68 md:h-auto p-2 md:p-4 bg-black">
             <div
               ref={videoContainerRef}
               className="relative mx-auto bg-gray-900 rounded-lg overflow-hidden min-h-[300px] max-h-[60vh]" // Agregado min-h-[300px]
