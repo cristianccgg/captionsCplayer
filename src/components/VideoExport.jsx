@@ -26,6 +26,15 @@ const ExportOptions = {
   },
 };
 
+const isIOSMobile = () => {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.platform) ||
+    (navigator.platform === "MacIntel" &&
+      navigator.maxTouchPoints > 1 &&
+      !/Mac/.test(navigator.userAgent))
+  );
+};
+
 const calculateDimensions = (videoElement, targetHeight) => {
   const aspectRatio = videoElement.videoWidth / videoElement.videoHeight;
   const isVertical = videoElement.videoHeight > videoElement.videoWidth;
@@ -101,14 +110,20 @@ export function VideoExport({
         startTime,
         isExporting: wasExporting,
       } = JSON.parse(savedState);
-      if (wasExporting) {
-        setProgress(savedProgress);
-        setExportStartTime(startTime);
-        setIsExporting(true);
+
+      // Solo recuperar el estado si teníamos un video y estábamos exportando
+      if (wasExporting && videoUrl) {
+        const timeElapsed = Date.now() - startTime;
+        // Si han pasado más de 5 segundos, no recuperar el estado
+        if (timeElapsed < 5000) {
+          setProgress(savedProgress);
+          setExportStartTime(startTime);
+          setIsExporting(true);
+        }
       }
       localStorage.removeItem("exportState");
     }
-  }, []);
+  }, [videoUrl]);
 
   const calculateWordTiming = (phrase, currentTime) => {
     const phraseLength = phrase.end - phrase.start;
@@ -240,6 +255,11 @@ export function VideoExport({
   };
 
   const getMimeType = useCallback(() => {
+    // Para iOS móvil, forzar MP4 con codec H.264
+    if (isIOSMobile()) {
+      return 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+    }
+
     const mimeTypes = [
       "video/mp4;codecs=h264",
       "video/webm;codecs=h264",
@@ -289,6 +309,72 @@ export function VideoExport({
       );
       canvas.width = width;
       canvas.height = height;
+
+      // Optimización específica para iOS móvil
+      if (isIOSMobile()) {
+        const options = {
+          mimeType: getMimeType(),
+          videoBitsPerSecond: planDetails.bitrate,
+          audioBitsPerSecond: 128000,
+        };
+
+        const videoStream = canvas.captureStream(30);
+        const audioContext = new (window.AudioContext ||
+          window.webkitAudioContext)({
+          sampleRate: 44100,
+          latencyHint: "playback",
+        });
+
+        const source =
+          audioContext.createMediaElementSource(originalVideoElement);
+        const destination = audioContext.createMediaStreamDestination();
+        source.connect(destination);
+        source.connect(audioContext.destination);
+
+        const combinedStream = new MediaStream([
+          videoStream.getVideoTracks()[0],
+          destination.stream.getAudioTracks()[0],
+        ]);
+
+        mediaRecorderRef.current = new MediaRecorder(combinedStream, options);
+        chunksRef.current = [];
+
+        const renderFrame = () => {
+          if (!isExportingRef.current) return;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(
+            originalVideoElement,
+            0,
+            0,
+            canvas.width,
+            canvas.height
+          );
+          drawSubtitles(
+            ctx,
+            canvas,
+            originalVideoElement.currentTime,
+            phrases,
+            subtitleStyles
+          );
+          requestAnimationFrameRef.current = requestAnimationFrame(renderFrame);
+        };
+
+        mediaRecorderRef.current.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            chunksRef.current.push(e.data);
+          }
+        };
+
+        setIsExporting(true);
+        isExportingRef.current = true;
+        setProgress(0);
+
+        mediaRecorderRef.current.start(250);
+        await originalVideoElement.play();
+        renderFrame();
+
+        return;
+      }
 
       // Crear un Worker para mantener el proceso de renderizado
       const renderWorker = new Worker(
@@ -463,8 +549,7 @@ export function VideoExport({
 
   useEffect(() => {
     return () => {
-      if (isExportingRef.current) {
-        // Guardar el estado final si el componente se desmonta durante la exportación
+      if (isExportingRef.current && videoUrl) {
         localStorage.setItem(
           "exportState",
           JSON.stringify({
@@ -475,7 +560,7 @@ export function VideoExport({
         );
       }
     };
-  }, [progress, exportStartTime]);
+  }, [progress, exportStartTime, videoUrl]);
 
   const handleExport = () => {
     setShowExportModal(true);
@@ -565,6 +650,14 @@ export function VideoExport({
       />
 
       {showExportModal && <ExportModal />}
+      {isIOSMobile() && (
+        <div className="mb-4 p-3 bg-yellow-600 bg-opacity-20 border border-yellow-600 rounded">
+          <p className="text-yellow-400 text-sm">
+            Nota: La exportación en iOS móvil puede tomar más tiempo. Por favor,
+            mantén la pantalla activa durante el proceso.
+          </p>
+        </div>
+      )}
     </>
   );
 }
