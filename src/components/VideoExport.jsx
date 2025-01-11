@@ -1,25 +1,43 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Save, Lock, Check } from "lucide-react";
+import ExportProgress from "./ExportProgress";
 
 const ExportOptions = {
   FREE: {
-    maxDuration: 5 * 60, // 5 minutos
+    maxDuration: 5 * 60,
     resolution: "720p",
     watermark: true,
     formats: ["mp4"],
+    bitrate: 2500000, // 2.5 Mbps para 720p
   },
   PRO: {
-    maxDuration: 60 * 60, // 1 hora
+    maxDuration: 60 * 60,
     resolution: "1080p",
     watermark: false,
     formats: ["mp4", "webm", "avi"],
+    bitrate: 5000000, // 5 Mbps para 1080p
   },
   ENTERPRISE: {
-    maxDuration: null, // Sin límite
+    maxDuration: null,
     resolution: "4K",
     watermark: false,
     formats: ["mp4", "webm", "avi", "mov"],
+    bitrate: 16000000, // 16 Mbps para 4K
   },
+};
+
+const calculateDimensions = (videoElement, targetHeight) => {
+  const aspectRatio = videoElement.videoWidth / videoElement.videoHeight;
+  const isVertical = videoElement.videoHeight > videoElement.videoWidth;
+
+  if (isVertical) {
+    const height = targetHeight;
+    const width = Math.round(height * aspectRatio);
+    return { width, height };
+  } else {
+    const width = Math.round(targetHeight * aspectRatio);
+    return { width, height: targetHeight };
+  }
 };
 
 export function VideoExport({
@@ -32,12 +50,65 @@ export function VideoExport({
   const [selectedPlan, setSelectedPlan] = useState("FREE");
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [exportStartTime, setExportStartTime] = useState(null);
 
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const isExportingRef = useRef(false);
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
+  const requestAnimationFrameRef = useRef(null);
+
+  // Agregar protección contra navegación
+  useEffect(() => {
+    if (!isExporting) return;
+
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = ""; // Mensaje requerido por algunos navegadores
+      return "La exportación está en progreso. ¿Estás seguro de que quieres salir?";
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden && isExportingRef.current) {
+        // Guardar el estado actual para cuando el usuario vuelva
+        localStorage.setItem(
+          "exportState",
+          JSON.stringify({
+            progress: progress,
+            startTime: exportStartTime,
+            isExporting: true,
+          })
+        );
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isExporting, progress, exportStartTime]);
+
+  // Recuperar estado de exportación si existe
+  useEffect(() => {
+    const savedState = localStorage.getItem("exportState");
+    if (savedState) {
+      const {
+        progress: savedProgress,
+        startTime,
+        isExporting: wasExporting,
+      } = JSON.parse(savedState);
+      if (wasExporting) {
+        setProgress(savedProgress);
+        setExportStartTime(startTime);
+        setIsExporting(true);
+      }
+      localStorage.removeItem("exportState");
+    }
+  }, []);
 
   const calculateWordTiming = (phrase, currentTime) => {
     const phraseLength = phrase.end - phrase.start;
@@ -168,64 +239,106 @@ export function VideoExport({
     });
   };
 
-  const getMimeType = () => {
+  const getMimeType = useCallback(() => {
     const mimeTypes = [
       "video/mp4;codecs=h264",
-      "video/mp4",
       "video/webm;codecs=h264",
       "video/webm;codecs=vp9",
-      "video/webm;codecs=vp8",
       "video/webm",
+      "video/mp4",
     ];
+
     for (const type of mimeTypes) {
       if (MediaRecorder.isTypeSupported(type)) {
         return type;
       }
     }
     throw new Error("No supported MIME type found.");
-  };
+  }, []);
 
   const startExport = async (planDetails) => {
     if (!videoUrl || !mainVideoRef.current) return;
+
     try {
       const originalVideoElement = mainVideoRef.current;
+      setExportStartTime(Date.now());
 
+      // Crear canvas solo si no existe
       if (!canvasRef.current) {
         canvasRef.current = document.createElement("canvas");
-        ctxRef.current = canvasRef.current.getContext("2d");
+        ctxRef.current = canvasRef.current.getContext("2d", {
+          alpha: false,
+          desynchronized: true,
+          willReadFrequently: true, // Optimización para lecturas frecuentes
+        });
       }
+
       const canvas = canvasRef.current;
       const ctx = ctxRef.current;
 
-      // Mapeo de aspect ratios a resoluciones
-      const resolutionMap = {
-        "16:9": { width: 1920, height: 1080 },
-        "9:16": { width: 1080, height: 1920 },
-        "1:1": { width: 1080, height: 1080 },
-      };
+      const targetHeight =
+        planDetails.resolution === "4K"
+          ? 2160
+          : planDetails.resolution === "1080p"
+          ? 1080
+          : 720;
 
-      // Obtener el aspect ratio actual del video
-      const currentAspectRatio =
-        mainVideoRef.current.videoWidth > mainVideoRef.current.videoHeight
-          ? "16:9"
-          : mainVideoRef.current.videoWidth === mainVideoRef.current.videoHeight
-          ? "1:1"
-          : "9:16";
-
-      // Usar el aspect ratio seleccionado o el detectado
-      const aspectRatio = planDetails.resolution || currentAspectRatio;
-
-      // Cambiar aquí la destructuración
-      const resolution = resolutionMap[aspectRatio] || resolutionMap["9:16"];
-      const width = resolution.width;
-      const height = resolution.height;
-
+      const { width, height } = calculateDimensions(
+        originalVideoElement,
+        targetHeight
+      );
       canvas.width = width;
       canvas.height = height;
 
+      // Crear un Worker para mantener el proceso de renderizado
+      const renderWorker = new Worker(
+        URL.createObjectURL(
+          new Blob(
+            [
+              `
+              let isExporting = true;
+              let lastTimestamp = 0;
+  
+              self.onmessage = function(e) {
+                if (e.data.type === 'stop') {
+                  isExporting = false;
+                } else if (e.data.type === 'start') {
+                  isExporting = true;
+                  requestAnimationFrame(function loop(timestamp) {
+                    if (!isExporting) return;
+                    
+                    if (timestamp - lastTimestamp >= ${1000 / 30}) {
+                      self.postMessage({ type: 'render' });
+                      lastTimestamp = timestamp;
+                    }
+                    
+                    requestAnimationFrame(loop);
+                  });
+                }
+              };
+              `,
+            ],
+            { type: "application/javascript" }
+          )
+        )
+      );
+
+      // Manejar la visibilidad del documento
+      const handleVisibilityChange = () => {
+        if (document.hidden) {
+          renderWorker.postMessage({ type: "start" });
+        }
+      };
+
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+
       const audioContext = new (window.AudioContext ||
-        window.webkitAudioContext)();
+        window.webkitAudioContext)({
+        latencyHint: "playback",
+      });
+
       const clonedVideoElement = originalVideoElement.cloneNode(true);
+      clonedVideoElement.muted = false; // Asegurar que el audio se procese
 
       await new Promise((resolve) => {
         clonedVideoElement.addEventListener("loadeddata", resolve, {
@@ -240,16 +353,15 @@ export function VideoExport({
       source.connect(audioContext.destination);
 
       const videoStream = canvas.captureStream(30);
-      const audioStream = destination.stream;
       const combinedStream = new MediaStream([
         ...videoStream.getTracks(),
-        ...audioStream.getTracks(),
+        ...destination.stream.getTracks(),
       ]);
 
-      const mimeType = getMimeType();
       const options = {
-        mimeType: mimeType,
-        videoBitsPerSecond: 8000000,
+        mimeType: getMimeType(),
+        videoBitsPerSecond: planDetails.bitrate,
+        audioBitsPerSecond: 128000,
       };
 
       mediaRecorderRef.current = new MediaRecorder(combinedStream, options);
@@ -261,37 +373,55 @@ export function VideoExport({
         }
       };
 
-      mediaRecorderRef.current.onstop = async () => {
-        if (chunksRef.current.length > 0) {
-          const blob = new Blob(chunksRef.current, { type: mimeType });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-
-          audioContext.close();
+      const cleanup = () => {
+        renderWorker.terminate();
+        document.removeEventListener(
+          "visibilitychange",
+          handleVisibilityChange
+        );
+        cancelAnimationFrame(requestAnimationFrameRef.current);
+        if (
+          mediaRecorderRef.current &&
+          mediaRecorderRef.current.state === "recording"
+        ) {
+          mediaRecorderRef.current.stop();
         }
+        audioContext.close();
+      };
 
-        setIsExporting(false);
-        isExportingRef.current = false;
-        setProgress(100);
+      mediaRecorderRef.current.onstop = async () => {
+        try {
+          if (chunksRef.current.length > 0) {
+            const blob = new Blob(chunksRef.current, { type: getMimeType() });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
+        } catch (error) {
+          console.error("Error al finalizar la exportación:", error);
+        } finally {
+          cleanup();
+          setIsExporting(false);
+          isExportingRef.current = false;
+          setProgress(100);
+          setExportStartTime(null);
+        }
       };
 
       setIsExporting(true);
       isExportingRef.current = true;
       setProgress(0);
-      mediaRecorderRef.current.start();
+
+      mediaRecorderRef.current.start(250);
       await clonedVideoElement.play();
 
-      const renderFrame = () => {
-        if (!isExportingRef.current) {
-          mediaRecorderRef.current.stop();
-          return;
-        }
+      renderWorker.onmessage = () => {
+        if (!isExportingRef.current) return;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(clonedVideoElement, 0, 0, canvas.width, canvas.height);
@@ -309,22 +439,43 @@ export function VideoExport({
         setProgress(Math.round(currentProgress));
 
         if (clonedVideoElement.currentTime >= clonedVideoElement.duration) {
-          mediaRecorderRef.current.stop();
-          return;
+          cleanup();
         }
-
-        requestAnimationFrame(renderFrame);
       };
 
-      renderFrame();
+      renderWorker.postMessage({ type: "start" });
+
+      // Cleanup si hay error
+      window.addEventListener("unload", cleanup);
+      return () => {
+        window.removeEventListener("unload", cleanup);
+        cleanup();
+      };
     } catch (error) {
       console.error("Error during export:", error);
       setIsExporting(false);
       isExportingRef.current = false;
       setProgress(0);
+      setExportStartTime(null);
       alert("Error during export: " + error.message);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (isExportingRef.current) {
+        // Guardar el estado final si el componente se desmonta durante la exportación
+        localStorage.setItem(
+          "exportState",
+          JSON.stringify({
+            progress: progress,
+            startTime: exportStartTime,
+            isExporting: true,
+          })
+        );
+      }
+    };
+  }, [progress, exportStartTime]);
 
   const handleExport = () => {
     setShowExportModal(true);
@@ -406,6 +557,12 @@ export function VideoExport({
           {isExporting ? `Exportando... ${progress}%` : "Exportar video"}
         </span>
       </button>
+
+      <ExportProgress
+        isExporting={isExporting}
+        progress={progress}
+        startTime={exportStartTime}
+      />
 
       {showExportModal && <ExportModal />}
     </>

@@ -7,7 +7,6 @@ export const SubtitleRenderer = ({
   containerWidth,
   containerHeight,
 }) => {
-  // Función para cargar fuentes dinámicamente
   const loadFont = (fontFamily) => {
     const googleFontName = fontFamily.match(/'([^']*)'/);
     if (googleFontName) {
@@ -47,17 +46,11 @@ export const SubtitleRenderer = ({
     const fontSize = styles.fontSize * (containerHeight / 1080);
     const lineHeight = fontSize * 1.2;
 
-    const defaultPositions = {
-      top: padding + lineHeight / 2,
-      middle: containerHeight / 2,
-      bottom: containerHeight - padding - lineHeight / 2,
-    };
-
     if (styles.customPosition && styles.customPosition.y !== undefined) {
       return styles.customPosition.y * containerHeight;
     }
 
-    return defaultPositions[styles.position || "bottom"];
+    return containerHeight - padding - lineHeight / 2;
   };
 
   const splitIntoLines = (words) => {
@@ -100,6 +93,7 @@ export const SubtitleRenderer = ({
     const lines = splitIntoLines(wordTimings);
     const scaledFontSize = styles.fontSize * (containerHeight / 1080);
     const lineHeight = scaledFontSize * 1.2;
+    const padding = Math.round(20 * (containerHeight / 1080));
 
     return (
       <div
@@ -107,60 +101,59 @@ export const SubtitleRenderer = ({
           position: "absolute",
           width: "100%",
           display: "flex",
-          justifyContent: "center",
+          flexDirection: "column",
+          alignItems: "center",
           top: `${verticalPosition}px`,
           transform: "translateY(-50%)",
           pointerEvents: "none",
         }}
       >
-        <div
-          style={{
-            backgroundColor: styles.backgroundColor,
-            padding: `${Math.round(
-              10 * (containerHeight / 1080)
-            )}px ${Math.round(20 * (containerHeight / 1080))}px`,
-            borderRadius: Math.round(4 * (containerHeight / 1080)),
-            maxWidth: `${containerWidth * 0.9}px`,
-            width: "fit-content",
-          }}
-        >
-          {lines.map((line, lineIndex) => (
-            <p
-              key={lineIndex}
-              style={{
-                margin: 0,
-                marginBottom:
-                  lineIndex < lines.length - 1 ? `${lineHeight * 0.2}px` : 0,
-                fontSize: `${scaledFontSize}px`,
-                fontFamily:
-                  styles.fontFamily || "system-ui, -apple-system, sans-serif",
-                fontWeight: styles.fontWeight,
-                fontStyle: styles.fontStyle,
-                textAlign: styles.textAlign,
-                lineHeight: `${lineHeight}px`,
-                whiteSpace: "nowrap",
-              }}
-            >
-              {line.map((wordTiming, index) => (
-                <span
-                  key={index}
-                  style={{
-                    color: wordTiming.isCurrentWord
-                      ? styles.highlightColor
-                      : styles.color,
-                    WebkitTextStroke: "0.6px black",
-                    textStroke: "0.6px black",
-                    textShadow: "0 0 2px black",
-                    fontWeight: Math.min(600, styles.fontWeight),
-                  }}
-                >
-                  {wordTiming.word}
-                  {index < line.length - 1 ? " " : ""}
-                </span>
-              ))}
-            </p>
-          ))}
-        </div>
+        {lines.map((line, lineIndex) => (
+          <div
+            key={lineIndex}
+            style={{
+              backgroundColor: styles.backgroundColor,
+              padding: `${Math.round(padding * 0.25)}px ${padding}px`,
+              borderRadius: Math.round(4 * (containerHeight / 1080)),
+              marginBottom:
+                lineIndex < lines.length - 1 ? `${lineHeight * 0.2}px` : 0,
+              display: "flex",
+              gap: `${scaledFontSize * 0.25}px`,
+              alignItems: "center",
+              justifyContent: "center",
+              maxWidth: `${containerWidth * 0.9}px`,
+            }}
+          >
+            {line.map((wordTiming, index) => (
+              <span
+                key={index}
+                style={{
+                  color: wordTiming.isCurrentWord
+                    ? styles.highlightColor
+                    : styles.color,
+                  fontSize: `${scaledFontSize}px`,
+                  fontFamily:
+                    styles.fontFamily || "system-ui, -apple-system, sans-serif",
+                  fontWeight: styles.fontWeight,
+                  fontStyle: styles.fontStyle,
+                  textAlign: "center",
+                  lineHeight: `${lineHeight}px`,
+                  position: "relative",
+                  textShadow: `
+                    -1px -1px 0 #000,
+                    1px -1px 0 #000,
+                    -1px 1px 0 #000,
+                    1px 1px 0 #000,
+                    0 2px 2px rgba(0,0,0,0.5)
+                  `,
+                  filter: "drop-shadow(0 2px 2px rgba(0,0,0,0.5))",
+                }}
+              >
+                {wordTiming.word}
+              </span>
+            ))}
+          </div>
+        ))}
       </div>
     );
   };

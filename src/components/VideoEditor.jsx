@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { transcribeAudio } from "../services/transcriptionService";
+
 import { SubtitleStyleControls } from "./SubtitleStyleControls";
 import { VideoExport } from "./VideoExport";
 import SubtitleRenderer from "./SubtitleRenderer";
