@@ -310,70 +310,129 @@ export function VideoExport({
       canvas.width = width;
       canvas.height = height;
 
-      // Optimización específica para iOS móvil
       if (isIOSMobile()) {
-        const options = {
-          mimeType: getMimeType(),
-          videoBitsPerSecond: planDetails.bitrate,
-          audioBitsPerSecond: 128000,
-        };
+        try {
+          const options = {
+            mimeType: getMimeType(),
+            videoBitsPerSecond: planDetails.bitrate,
+            audioBitsPerSecond: 128000,
+          };
 
-        const videoStream = canvas.captureStream(30);
-        const audioContext = new (window.AudioContext ||
-          window.webkitAudioContext)({
-          sampleRate: 44100,
-          latencyHint: "playback",
-        });
+          const videoStream = canvas.captureStream(30);
+          const audioContext = new (window.AudioContext ||
+            window.webkitAudioContext)({
+            sampleRate: 44100,
+            latencyHint: "playback",
+          });
 
-        const source =
-          audioContext.createMediaElementSource(originalVideoElement);
-        const destination = audioContext.createMediaStreamDestination();
-        source.connect(destination);
-        source.connect(audioContext.destination);
+          const source =
+            audioContext.createMediaElementSource(originalVideoElement);
+          const destination = audioContext.createMediaStreamDestination();
+          source.connect(destination);
+          source.connect(audioContext.destination);
 
-        const combinedStream = new MediaStream([
-          videoStream.getVideoTracks()[0],
-          destination.stream.getAudioTracks()[0],
-        ]);
+          const combinedStream = new MediaStream([
+            videoStream.getVideoTracks()[0],
+            destination.stream.getAudioTracks()[0],
+          ]);
 
-        mediaRecorderRef.current = new MediaRecorder(combinedStream, options);
-        chunksRef.current = [];
+          mediaRecorderRef.current = new MediaRecorder(combinedStream, options);
+          chunksRef.current = [];
 
-        const renderFrame = () => {
-          if (!isExportingRef.current) return;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(
-            originalVideoElement,
-            0,
-            0,
-            canvas.width,
-            canvas.height
-          );
-          drawSubtitles(
-            ctx,
-            canvas,
-            originalVideoElement.currentTime,
-            phrases,
-            subtitleStyles
-          );
-          requestAnimationFrameRef.current = requestAnimationFrame(renderFrame);
-        };
+          // Agregar manejador de errores
+          mediaRecorderRef.current.onerror = (error) => {
+            console.error("MediaRecorder error:", error);
+            alert("Error durante la exportación: " + error.message);
+            setIsExporting(false);
+            isExportingRef.current = false;
+            setProgress(0);
+          };
 
-        mediaRecorderRef.current.ondataavailable = (e) => {
-          if (e.data.size > 0) {
-            chunksRef.current.push(e.data);
-          }
-        };
+          // Mejorar el manejo del progreso
+          const duration = originalVideoElement.duration;
+          let lastTime = 0;
 
-        setIsExporting(true);
-        isExportingRef.current = true;
-        setProgress(0);
+          const renderFrame = () => {
+            if (!isExportingRef.current) return;
 
-        mediaRecorderRef.current.start(250);
-        await originalVideoElement.play();
-        renderFrame();
+            const currentTime = originalVideoElement.currentTime;
 
-        return;
+            // Actualizar progreso solo si el tiempo ha cambiado
+            if (currentTime > lastTime) {
+              const currentProgress = (currentTime / duration) * 100;
+              setProgress(Math.round(currentProgress));
+              lastTime = currentTime;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(
+              originalVideoElement,
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            );
+            drawSubtitles(ctx, canvas, currentTime, phrases, subtitleStyles);
+
+            if (currentTime < duration) {
+              requestAnimationFrameRef.current =
+                requestAnimationFrame(renderFrame);
+            } else {
+              mediaRecorderRef.current.stop();
+            }
+          };
+
+          mediaRecorderRef.current.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) {
+              chunksRef.current.push(e.data);
+            }
+          };
+
+          mediaRecorderRef.current.onstop = async () => {
+            try {
+              if (chunksRef.current.length > 0) {
+                const blob = new Blob(chunksRef.current, {
+                  type: getMimeType(),
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                // Limpiar después de exportar exitosamente
+                audioContext.close();
+                setIsExporting(false);
+                isExportingRef.current = false;
+                setProgress(100);
+              }
+            } catch (error) {
+              console.error("Error al finalizar la exportación:", error);
+              alert("Error al finalizar la exportación: " + error.message);
+            }
+          };
+
+          setIsExporting(true);
+          isExportingRef.current = true;
+          setProgress(0);
+
+          // Iniciar grabación con un tamaño de timeslice más pequeño para iOS
+          mediaRecorderRef.current.start(100);
+          originalVideoElement.currentTime = 0;
+          await originalVideoElement.play();
+          renderFrame();
+
+          return;
+        } catch (error) {
+          console.error("Error en exportación iOS:", error);
+          alert("Error durante la exportación en iOS: " + error.message);
+          setIsExporting(false);
+          isExportingRef.current = false;
+          setProgress(0);
+        }
       }
 
       // Crear un Worker para mantener el proceso de renderizado
@@ -651,8 +710,8 @@ export function VideoExport({
 
       {showExportModal && <ExportModal />}
       {isIOSMobile() && (
-        <div className="mb-4 p-3 bg-yellow-600 bg-opacity-20 border border-yellow-600 rounded">
-          <p className="text-yellow-400 text-sm">
+        <div className="mb-4 p-3 bg-pink-600 bg-opacity-20 border border-yellow-600 rounded">
+          <p className="text-yellow-400 text-xs">
             Nota: La exportación en iOS móvil puede tomar más tiempo. Por favor,
             mantén la pantalla activa durante el proceso.
           </p>
