@@ -392,16 +392,75 @@ export function VideoExport({
             try {
               if (chunksRef.current.length > 0) {
                 const blob = new Blob(chunksRef.current, {
-                  type: getMimeType(),
+                  // Forzar el tipo MIME para mejor compatibilidad con iOS
+                  type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
                 });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+
+                // En iOS, es mejor usar un elemento de video para previsualizar
+                const previewVideo = document.createElement("video");
+                previewVideo.src = url;
+                previewVideo.controls = true;
+                previewVideo.style.width = "100%";
+                previewVideo.style.maxWidth = "600px";
+                previewVideo.style.marginBottom = "20px";
+
+                // Crear un diálogo personalizado
+                const dialog = document.createElement("div");
+                dialog.style.position = "fixed";
+                dialog.style.top = "0";
+                dialog.style.left = "0";
+                dialog.style.right = "0";
+                dialog.style.bottom = "0";
+                dialog.style.backgroundColor = "rgba(0, 0, 0, 0.9)";
+                dialog.style.display = "flex";
+                dialog.style.flexDirection = "column";
+                dialog.style.alignItems = "center";
+                dialog.style.justifyContent = "center";
+                dialog.style.padding = "20px";
+                dialog.style.zIndex = "9999";
+
+                const buttonContainer = document.createElement("div");
+                buttonContainer.style.display = "flex";
+                buttonContainer.style.gap = "10px";
+                buttonContainer.style.marginTop = "20px";
+
+                // Botón de descarga
+                const downloadButton = document.createElement("button");
+                downloadButton.textContent = "Descargar";
+                downloadButton.style.padding = "10px 20px";
+                downloadButton.style.backgroundColor = "#ec4899"; // pink-500
+                downloadButton.style.color = "white";
+                downloadButton.style.borderRadius = "8px";
+                downloadButton.style.border = "none";
+                downloadButton.onclick = () => {
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  dialog.remove();
+                };
+
+                // Botón de cerrar
+                const closeButton = document.createElement("button");
+                closeButton.textContent = "Cerrar";
+                closeButton.style.padding = "10px 20px";
+                closeButton.style.backgroundColor = "#4b5563"; // gray-600
+                closeButton.style.color = "white";
+                closeButton.style.borderRadius = "8px";
+                closeButton.style.border = "none";
+                closeButton.onclick = () => {
+                  dialog.remove();
+                  URL.revokeObjectURL(url);
+                };
+
+                buttonContainer.appendChild(downloadButton);
+                buttonContainer.appendChild(closeButton);
+                dialog.appendChild(previewVideo);
+                dialog.appendChild(buttonContainer);
+                document.body.appendChild(dialog);
 
                 // Limpiar después de exportar exitosamente
                 audioContext.close();
@@ -414,7 +473,6 @@ export function VideoExport({
               alert("Error al finalizar la exportación: " + error.message);
             }
           };
-
           setIsExporting(true);
           isExportingRef.current = true;
           setProgress(0);
