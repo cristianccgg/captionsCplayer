@@ -38,7 +38,6 @@ export function VideoEditor() {
   const [isLanguageModalOpen, setIsLanguageModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [selectedLanguage, setSelectedLanguage] = useState("auto");
-  const [isMobileControlsOpen, setIsMobileControlsOpen] = useState(false);
 
   const [subtitleStyles, setSubtitleStyles] = useState({
     default: {
@@ -612,371 +611,37 @@ export function VideoEditor() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-black">
-      <EditorControls
-        onAspectRatioChange={handleAspectRatioChange}
-        onStyleChange={handleStyleChange}
-        initialAspectRatio={aspectRatio}
-      />
-
-      {/* Vista Móvil */}
-      <div className="md:hidden flex flex-col flex-1">
-        {/* Video Fijo en la parte superior */}
-        <div className="sticky top-0 z-30 bg-black">
-          <div className="p-2">
-            <div
-              ref={videoContainerRef}
-              className="relative mx-auto bg-gray-900 rounded-lg overflow-hidden min-h-[200px]"
-              style={videoContainerStyle}
-            >
-              {videoUrl ? (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <video
-                    ref={videoRef}
-                    src={videoUrl}
-                    className="w-full h-full object-contain"
-                    onTimeUpdate={() =>
-                      setCurrentTime(videoRef.current?.currentTime || 0)
-                    }
-                    onLoadedMetadata={(e) => {
-                      setDuration(e.target.duration);
-                      const ratio = e.target.videoWidth / e.target.videoHeight;
-                      const detectedRatio =
-                        ratio >= 16 / 9
-                          ? "16:9"
-                          : ratio <= 9 / 16
-                          ? "9:16"
-                          : Math.abs(ratio - 1) < 0.1
-                          ? "1:1"
-                          : "16:9";
-                      setAspectRatio(detectedRatio);
-                      handleAspectRatioChange(detectedRatio);
-                    }}
-                    playsInline
-                    webkit-playsinline="true"
-                    x5-playsinline="true"
-                    controlsList="nodownload nofullscreen noremoteplayback"
-                    disablePictureInPicture
-                    preload="auto"
-                  />
-                  <TranscriptionProgress
-                    isTranscribing={isTranscribing}
-                    status={processingStatus}
-                    progress={transcriptionProgress}
-                  />
-                  <div className="absolute inset-0">
-                    {phrases.map((phrase) => {
-                      const isPhraseVisible =
-                        currentTime * 1000 >= phrase.start &&
-                        currentTime * 1000 <= phrase.end;
-
-                      if (!isPhraseVisible) return null;
-
-                      const phraseStyles =
-                        subtitleStyles.phraseStyles[phrase.id] ||
-                        subtitleStyles.default;
-
-                      const videoElement = videoRef.current;
-                      if (!videoElement) return null;
-
-                      const videoWidth = videoElement.videoWidth;
-                      const videoHeight = videoElement.videoHeight;
-                      const containerWidth = videoElement.clientWidth;
-                      const containerHeight = videoElement.clientHeight;
-                      const scale = Math.min(
-                        containerWidth / videoWidth,
-                        containerHeight / videoHeight
-                      );
-
-                      const scaledWidth = videoWidth * scale;
-                      const scaledHeight = videoHeight * scale;
-
-                      return (
-                        <SubtitleRenderer
-                          key={phrase.id}
-                          phrase={phrase}
-                          currentTime={currentTime * 1000}
-                          styles={phraseStyles}
-                          containerWidth={scaledWidth}
-                          containerHeight={scaledHeight}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <label className="absolute inset-0 flex items-center justify-center text-gray-500 cursor-pointer">
-                  <input
-                    type="file"
-                    accept="video/*"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                  <div className="text-center">
-                    <Video className="w-12 h-12 mx-auto mb-2" />
-                    <p>Arrastra y suelta un video o haz clic para subir</p>
-                  </div>
-                </label>
-              )}
-            </div>
-          </div>
-
-          {/* Controles de Video Móvil */}
-          <div className="flex items-center justify-between px-4 py-2 border-t border-b border-gray-800">
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => {
-                  if (videoRef.current) {
-                    const newTime = Math.max(
-                      0,
-                      videoRef.current.currentTime - 5
-                    );
-                    videoRef.current.currentTime = newTime;
-                    setCurrentTime(newTime);
-                  }
-                }}
-                className="p-2 hover:bg-gray-800 rounded-full text-pink-600"
-                disabled={!videoUrl}
-              >
-                <Rewind size={20} />
-              </button>
-
-              <button
-                onClick={() => {
-                  if (videoRef.current) {
-                    if (isPlaying) {
-                      videoRef.current.pause();
-                    } else {
-                      videoRef.current.play();
-                    }
-                    setIsPlaying(!isPlaying);
-                  }
-                }}
-                className="p-2 hover:bg-gray-800 rounded-full text-pink-600"
-                disabled={!videoUrl}
-              >
-                {isPlaying ? (
-                  <PauseCircle size={24} />
-                ) : (
-                  <PlayCircle size={24} />
-                )}
-              </button>
-
-              <button
-                onClick={() => {
-                  if (videoRef.current) {
-                    const newTime = Math.min(
-                      duration,
-                      videoRef.current.currentTime + 5
-                    );
-                    videoRef.current.currentTime = newTime;
-                    setCurrentTime(newTime);
-                  }
-                }}
-                className="p-2 hover:bg-gray-800 rounded-full text-pink-600"
-                disabled={!videoUrl}
-              >
-                <FastForward size={20} />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-white">
-                {formatTimeWithMs(currentTime * 1000)} /{" "}
-                {formatTimeWithMs(duration * 1000)}
-              </span>
-              <button
-                onClick={() => setIsMobileControlsOpen(!isMobileControlsOpen)}
-                className="p-2 text-pink-600 rounded-lg flex items-center gap-2 bg-gray-900"
-              >
-                <Type size={20} />
-                <span className="text-sm font-medium">
-                  {isMobileControlsOpen ? "Ocultar editor" : "Editor"}
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Panel de Edición Móvil */}
-        <div
-          className={`fixed inset-x-0 bottom-0 bg-black transition-all duration-300 ease-in-out z-20 ${
-            isMobileControlsOpen ? "translate-y-0" : "translate-y-full"
-          }`}
-          style={{
-            height: "70vh",
-            boxShadow: "0 -4px 6px -1px rgba(0, 0, 0, 0.1)",
-          }}
-        >
-          {/* Indicador de arrastre */}
-          <div className="h-1.5 w-12 bg-gray-600 rounded-full mx-auto my-2" />
-
-          {/* Contenido del Editor */}
-          <div className="h-full overflow-y-auto">
-            <div className="p-4 space-y-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">
-                  Editor de Subtítulos
-                </h3>
-                <span className="text-sm text-gray-400">
-                  {phrases.length} frases
-                </span>
-              </div>
-
-              {/* Lista de Subtítulos */}
-              <div className="space-y-3">
-                {phrases.map((phrase) => (
-                  <div
-                    key={phrase.id}
-                    className={`group relative p-3 rounded-lg border ${
-                      selectedPhraseIds.includes(phrase.id)
-                        ? "border-pink-600 bg-gray-800"
-                        : "border-gray-700 hover:border-gray-600"
-                    }`}
-                    onClick={() => {
-                      handlePhraseSelection(phrase.id, { ctrlKey: false });
-                      if (videoRef.current) {
-                        videoRef.current.currentTime = phrase.start / 1000;
-                      }
-                    }}
-                  >
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-xs font-mono text-gray-400">
-                        {formatTimeWithMs(phrase.start)}
-                      </span>
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSplitPhrase(phrase.id);
-                          }}
-                          className="p-1.5 rounded-full bg-gray-700 text-pink-500"
-                        >
-                          <ArrowLeftRight size={14} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleMergePhrases(phrase.id);
-                          }}
-                          className="p-1.5 rounded-full bg-gray-700 text-pink-500"
-                        >
-                          <Plus size={14} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeletePhrase(phrase.id);
-                          }}
-                          className="p-1.5 rounded-full bg-gray-700 text-pink-500"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {editingPhraseId === phrase.id ? (
-                      <input
-                        ref={editInputRef}
-                        type="text"
-                        className="w-full bg-black text-white px-3 py-2 rounded-lg border border-pink-500"
-                        defaultValue={phrase.text}
-                        onBlur={(e) =>
-                          handlePhraseEdit(phrase.id, e.target.value)
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                        autoFocus
-                      />
-                    ) : (
-                      <p
-                        className="text-white"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingPhraseId(phrase.id);
-                        }}
-                      >
-                        {phrase.text}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Controles de Estilo */}
-              <div className="mt-4 pb-safe">
-                <SubtitleStyleControls
-                  styles={
-                    selectedPhraseIds.length > 0
-                      ? subtitleStyles.phraseStyles[selectedPhraseIds[0]] ||
-                        subtitleStyles.default
-                      : subtitleStyles.default
-                  }
-                  onStyleChange={(property, value) => {
-                    if (selectedPhraseIds.length > 0) {
-                      setSubtitleStyles((prev) => ({
-                        ...prev,
-                        phraseStyles: {
-                          ...prev.phraseStyles,
-                          ...Object.fromEntries(
-                            selectedPhraseIds.map((id) => [
-                              id,
-                              {
-                                ...(prev.phraseStyles[id] || prev.default),
-                                [property]: value,
-                              },
-                            ])
-                          ),
-                        },
-                      }));
-                    } else {
-                      setSubtitleStyles((prev) => ({
-                        ...prev,
-                        default: {
-                          ...prev.default,
-                          [property]: value,
-                        },
-                      }));
-                    }
-                  }}
-                  selectedPhraseIds={selectedPhraseIds}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Botones de Acción Móvil */}
+    <div className="flex flex-col min-h-screen">
+      <div className="ms-auto flex items-center space-x-4 p-4">
         {videoUrl && (
-          <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black to-transparent z-30">
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  URL.revokeObjectURL(videoUrl);
-                  setVideoUrl("");
-                  setVideoFile(null);
-                  setPhrases([]);
-                  setCurrentTime(0);
-                  setDuration(0);
-                  setIsPlaying(false);
-                }}
-                className="flex-1 bg-red-500 text-white px-4 py-3 rounded-lg font-medium"
-              >
-                Eliminar Video
-              </button>
-              <VideoExport
-                videoUrl={videoUrl}
-                phrases={phrases}
-                subtitleStyles={subtitleStyles}
-                videoRef={videoRef}
-              />
-            </div>
-          </div>
+          <button
+            onClick={() => {
+              // Limpiar estado del video
+              URL.revokeObjectURL(videoUrl);
+              setVideoUrl("");
+              setVideoFile(null);
+              setPhrases([]);
+              setCurrentTime(0);
+              setDuration(0);
+              setIsPlaying(false);
+            }}
+            className="bg-red-500 w-fit text-white px-4 py-2 rounded-xl hover:bg-black"
+          >
+            Eliminar Video
+          </button>
+        )}
+        {videoUrl && (
+          <VideoExport
+            videoUrl={videoUrl}
+            phrases={phrases}
+            subtitleStyles={subtitleStyles}
+            videoRef={videoRef}
+          />
         )}
       </div>
 
-      {/* Vista Desktop */}
-      <div className="hidden md:flex md:flex-row flex-1">
-        {/* Editor de Subtítulos */}
+      <div className="flex flex-col md:flex-row flex-1">
+        {/* Editor de Subtítulos (sin cambios) */}
         <div className="flex-none md:w-1/3 bg-black border-t md:border-t-0 md:border-r border-gray-700 flex flex-col order-2 md:order-1">
           <div className="flex-none h-[40vh] md:h-[60vh] p-4 overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4 text-white">
@@ -1078,24 +743,35 @@ export function VideoEditor() {
                         setEditingPhraseId(phrase.id);
                       }}
                       className="p-1 hover:bg-gray-600 rounded text-pink-600 hover:text-white relative group/button"
+                      title={`Editar texto (${
+                        isMacOS() ? "⌘ + Enter" : "Alt + Enter"
+                      } para dividir)`}
                     >
                       <Edit2 size={16} />
+                      <div className="invisible group-hover/button:visible absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-xs text-white px-2 py-1 rounded shadow-lg whitespace-nowrap z-10">
+                        {`Editar texto (${
+                          isMacOS() ? "⌘ + Enter" : "Alt + Enter"
+                        } para dividir)`}
+                      </div>
                     </button>
                     <button
                       onClick={() => handleSplitPhrase(phrase.id)}
                       className="p-1 hover:bg-gray-600 rounded text-pink-600 hover:text-white ml-1"
+                      title="Dividir frase a la mitad"
                     >
                       <ArrowLeftRight size={16} />
                     </button>
                     <button
                       onClick={() => handleMergePhrases(phrase.id)}
                       className="p-1 hover:bg-gray-600 rounded text-pink-600 hover:text-white ml-1"
+                      title="Unir con siguiente"
                     >
                       <Plus size={16} />
                     </button>
                     <button
                       onClick={() => handleDeletePhrase(phrase.id)}
                       className="p-1 hover:bg-gray-600 rounded text-pink-600 hover:text-white ml-1"
+                      title="Eliminar"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -1104,7 +780,6 @@ export function VideoEditor() {
               ))}
             </div>
           </div>
-
           <SubtitleStyleControls
             styles={
               selectedPhraseIds.length > 0
@@ -1140,6 +815,11 @@ export function VideoEditor() {
               }
             }}
             selectedPhraseIds={selectedPhraseIds}
+          />{" "}
+          <EditorControls
+            onAspectRatioChange={handleAspectRatioChange}
+            onStyleChange={handleStyleChange} // Pasando el método para cambiar estilos
+            initialAspectRatio={aspectRatio}
           />
         </div>
 
@@ -1148,7 +828,7 @@ export function VideoEditor() {
           <div className="h-68 md:h-auto p-2 md:p-4 bg-black">
             <div
               ref={videoContainerRef}
-              className="relative mx-auto bg-gray-900 rounded-lg overflow-hidden min-h-[300px] max-h-[60vh]"
+              className="relative mx-auto bg-gray-900 rounded-lg overflow-hidden min-h-[300px] max-h-[60vh]" // Agregado min-h-[300px]
               style={videoContainerStyle}
             >
               {videoUrl ? (
@@ -1256,34 +936,13 @@ export function VideoEditor() {
                   </div>
                 </label>
               )}
-            </div>
-          </div>
-
-          {videoUrl && (
-            <div className="space-y-2">
-              <button
-                onClick={() => {
-                  URL.revokeObjectURL(videoUrl);
-                  setVideoUrl("");
-                  setVideoFile(null);
-                  setPhrases([]);
-                  setCurrentTime(0);
-                  setDuration(0);
-                  setIsPlaying(false);
-                }}
-                className="w-full bg-red-500 text-white px-4 py-2 rounded hover:bg-black"
-              >
-                Eliminar Video
-              </button>
-
-              <VideoExport
-                videoUrl={videoUrl}
-                phrases={phrases}
-                subtitleStyles={subtitleStyles}
-                videoRef={videoRef}
+              <LanguageSelectionModal
+                isOpen={isLanguageModalOpen}
+                onClose={() => setIsLanguageModalOpen(false)}
+                onLanguageSelect={handleLanguageSelect}
               />
             </div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -1435,11 +1094,11 @@ export function VideoEditor() {
                       <div
                         key={phrase.id}
                         className={`absolute h-full transition-colors duration-150
-                            ${
-                              selectedPhraseIds.includes(phrase.id)
-                                ? "bg-blue-500 bg-opacity-40 border-blue-500"
-                                : "bg-blue-500 bg-opacity-20 border-blue-500 hover:bg-opacity-30"
-                            } border-l border-r cursor-pointer`}
+                        ${
+                          selectedPhraseIds.includes(phrase.id)
+                            ? "bg-blue-500 bg-opacity-40 border-blue-500"
+                            : "bg-blue-500 bg-opacity-20 border-blue-500 hover:bg-opacity-30"
+                        } border-l border-r cursor-pointer`}
                         style={{
                           left: `${(phrase.start / 1000) * 50 * zoom}px`,
                           width: `${
@@ -1464,7 +1123,7 @@ export function VideoEditor() {
                 </div>
               ))}
 
-              {/* Área de selección */}
+              {/* Rectángulo de selección tipo marquee */}
               {isDragging && dragStart !== null && dragEnd !== null && (
                 <div
                   className="absolute top-0 bottom-0 pointer-events-none z-10"
@@ -1473,8 +1132,12 @@ export function VideoEditor() {
                     width: `${Math.abs(dragEnd - dragStart) * 50 * zoom}px`,
                   }}
                 >
+                  {/* Fondo semi-transparente */}
                   <div className="absolute inset-0 bg-pink-500 bg-opacity-10" />
+
+                  {/* Bordes animados */}
                   <div className="absolute inset-0 border border-pink-500 border-opacity-75">
+                    {/* Esquinas animadas */}
                     <div className="absolute -left-0.5 -top-0.5 w-2 h-2 border-t-2 border-l-2 border-pink-500 animate-pulse" />
                     <div className="absolute -right-0.5 -top-0.5 w-2 h-2 border-t-2 border-r-2 border-pink-500 animate-pulse" />
                     <div className="absolute -left-0.5 -bottom-0.5 w-2 h-2 border-b-2 border-l-2 border-pink-500 animate-pulse" />
@@ -1492,12 +1155,6 @@ export function VideoEditor() {
           </div>
         </div>
       </div>
-
-      <LanguageSelectionModal
-        isOpen={isLanguageModalOpen}
-        onClose={() => setIsLanguageModalOpen(false)}
-        onLanguageSelect={handleLanguageSelect}
-      />
     </div>
   );
 }

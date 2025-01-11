@@ -550,7 +550,7 @@ export function VideoExport({
     <>
       <button
         onClick={handleExport}
-        className="inline-flex items-center justify-center w-full mx-auto px-4 py-2 bg-pink-600 text-white rounded-md hover:bg-black"
+        className="inline-flex items-center justify-center w-fit mx-auto px-4 py-2 bg-pink-500 text-white rounded-xl hover:bg-pink-800  transition-colors duration-300 ease-in-out"
       >
         <Save className="w-4 h-4 mr-2" />
         <span className="text-center font-bold">
