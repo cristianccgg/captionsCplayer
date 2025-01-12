@@ -1,5 +1,14 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect } from "react";
 import { X, Download } from "lucide-react";
+
+const isIOSMobile = () => {
+  return (
+    /iPad|iPhone|iPod/.test(navigator.platform) ||
+    (navigator.platform === "MacIntel" &&
+      navigator.maxTouchPoints > 1 &&
+      !/Mac/.test(navigator.userAgent))
+  );
+};
 
 const VideoPreviewModal = ({
   videoUrl,
@@ -8,46 +17,33 @@ const VideoPreviewModal = ({
   filename,
   isOpen,
 }) => {
-  const videoRef = useRef(null);
-
   useEffect(() => {
-    if (isOpen && videoRef.current) {
-      // Forzar la carga del video cuando el modal se abre
-      videoRef.current.load();
+    if (isOpen && videoUrl && isIOSMobile()) {
+      // En iOS, simular click de descarga inmediatamente
+      onDownload();
+      onClose();
     }
-  }, [isOpen]);
+  }, [isOpen, videoUrl]);
 
+  // En iOS, no mostrar nuestro modal
+  if (isIOSMobile()) return null;
+
+  // En otros dispositivos, mostrar el modal normal
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center p-4 z-50">
       <div className="w-full max-w-2xl">
-        {/* Video con controles nativos ocultos pero manteniendo la funcionalidad */}
         <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
           <video
-            ref={videoRef}
             src={videoUrl}
             className="w-full h-full"
-            controls={true}
+            controls
             playsInline
             preload="auto"
-            controlsList="nodownload nofullscreen"
-            onLoadedMetadata={(e) => {
-              // Forzar la carga del video en iOS
-              const video = e.target;
-              video.load();
-              // En iOS, reproducir brevemente y pausar ayuda a inicializar el reproductor
-              if (/iPad|iPhone|iPod/.test(navigator.platform)) {
-                video
-                  .play()
-                  .then(() => video.pause())
-                  .catch(console.error);
-              }
-            }}
           />
         </div>
 
-        {/* Botones personalizados */}
         <div className="flex justify-center gap-4 mt-6">
           <button
             onClick={onDownload}
