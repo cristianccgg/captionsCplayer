@@ -392,7 +392,7 @@ export function VideoExport({
             try {
               if (chunksRef.current.length > 0) {
                 const blob = new Blob(chunksRef.current, {
-                  // Mantener solo la configuración que hace que funcione bien en iOS
+                  // Mantener la configuración que hace que funcione la previsualización en iOS
                   type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
                 });
                 const url = URL.createObjectURL(blob);
@@ -402,7 +402,11 @@ export function VideoExport({
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+
+                // Retrasar la revocación del URL para dar tiempo a iOS de manejarlo
+                setTimeout(() => {
+                  URL.revokeObjectURL(url);
+                }, 1000);
 
                 // Limpiar después de exportar exitosamente
                 audioContext.close();
@@ -415,7 +419,6 @@ export function VideoExport({
               alert("Error al finalizar la exportación: " + error.message);
             }
           };
-
           setIsExporting(true);
           isExportingRef.current = true;
           setProgress(0);
