@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Save, Lock, Check } from "lucide-react";
 import ExportProgress from "./ExportProgress";
+import VideoPreviewModal from "./VideoPreviewModal"; // Ajusta la ruta según tu estructura
 
 const ExportOptions = {
   FREE: {
@@ -67,6 +68,8 @@ export function VideoExport({
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   const requestAnimationFrameRef = useRef(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
 
   // Agregar protección contra navegación
   useEffect(() => {
@@ -392,38 +395,14 @@ export function VideoExport({
             try {
               if (chunksRef.current.length > 0) {
                 const blob = new Blob(chunksRef.current, {
+                  // Forzar el tipo MIME para mejor compatibilidad con iOS
                   type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
                 });
+                const url = URL.createObjectURL(blob);
 
-                // Crear y configurar el video element temporal (esto es clave para iOS)
-                const previewVideo = document.createElement("video");
-                previewVideo.src = URL.createObjectURL(blob);
-                previewVideo.style.position = "absolute";
-                previewVideo.style.opacity = "0";
-                previewVideo.style.pointerEvents = "none";
-                previewVideo.style.zIndex = "-1";
-                document.body.appendChild(previewVideo);
-
-                // Esperar a que el video esté listo
-                await new Promise((resolve) => {
-                  previewVideo.addEventListener("loadedmetadata", resolve, {
-                    once: true,
-                  });
-                });
-
-                // Ahora crear el enlace de descarga
-                const a = document.createElement("a");
-                a.href = previewVideo.src;
-                a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-
-                // Limpiar después de un momento para dar tiempo a iOS
-                setTimeout(() => {
-                  URL.revokeObjectURL(previewVideo.src);
-                  document.body.removeChild(previewVideo);
-                }, 1000);
+                // En lugar de crear elementos DOM, usamos estados de React
+                setPreviewUrl(url);
+                setIsPreviewOpen(true);
 
                 // Limpiar después de exportar exitosamente
                 audioContext.close();
@@ -731,6 +710,54 @@ export function VideoExport({
       />
 
       {showExportModal && <ExportModal />}
+      {isIOSMobile() && (
+        <div className="mb-4 p-3 bg-pink-600 bg-opacity-20 border border-yellow-600 rounded">
+          <p className="text-yellow-400 text-xs">
+            Nota: La exportación en iOS móvil puede tomar más tiempo. Por favor,
+            mantén la pantalla activa durante el proceso.
+          </p>
+        </div>
+      )}
+      <button
+        onClick={handleExport}
+        className="inline-flex items-center justify-center w-fit mx-auto px-4 py-2 bg-pink-500 text-white rounded-xl hover:bg-pink-800  transition-colors duration-300 ease-in-out"
+      >
+        <Save className="w-4 h-4 mr-2" />
+        <span className="text-center font-bold">
+          {isExporting ? `Exportando... ${progress}%` : "Exportar video"}
+        </span>
+      </button>
+
+      <ExportProgress
+        isExporting={isExporting}
+        progress={progress}
+        startTime={exportStartTime}
+      />
+
+      {showExportModal && <ExportModal />}
+
+      {/* Agregar el VideoPreviewModal aquí */}
+      <VideoPreviewModal
+        isOpen={isPreviewOpen}
+        videoUrl={previewUrl}
+        onClose={() => {
+          setIsPreviewOpen(false);
+          if (previewUrl) {
+            URL.revokeObjectURL(previewUrl);
+            setPreviewUrl(null);
+          }
+        }}
+        onDownload={() => {
+          const a = document.createElement("a");
+          a.href = previewUrl;
+          a.download = `video_with_subtitles_${ExportOptions[selectedPlan].resolution}.mp4`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setIsPreviewOpen(false);
+        }}
+      />
+
       {isIOSMobile() && (
         <div className="mb-4 p-3 bg-pink-600 bg-opacity-20 border border-yellow-600 rounded">
           <p className="text-yellow-400 text-xs">
