@@ -927,13 +927,6 @@ export function VideoEditor() {
                   <input
                     type="file"
                     accept="video/*"
-                    capture="environment"
-                    onClick={(e) => {
-                      // Para iOS necesitamos solicitar permisos explícitamente
-                      if (isIOSMobile()) {
-                        e.target.click();
-                      }
-                    }}
                     onChange={handleFileUpload}
                     className="hidden"
                   />
