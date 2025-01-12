@@ -534,24 +534,21 @@ export function VideoExport({
       mediaRecorderRef.current.onstop = async () => {
         try {
           if (chunksRef.current.length > 0) {
-            const blob = new Blob(chunksRef.current, { type: getMimeType() });
+            const blob = new Blob(chunksRef.current, {
+              type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
+            });
             const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            setPreviewUrl(url);
+
+            // Limpiar después de exportar exitosamente
+            audioContext.close();
+            setIsExporting(true); // Mantener isExporting en true para mostrar el modal
+            isExportingRef.current = false;
+            setProgress(100);
           }
         } catch (error) {
           console.error("Error al finalizar la exportación:", error);
-        } finally {
-          cleanup();
-          setIsExporting(false);
-          isExportingRef.current = false;
-          setProgress(100);
-          setExportStartTime(null);
+          alert("Error al finalizar la exportación: " + error.message);
         }
       };
 
@@ -703,6 +700,23 @@ export function VideoExport({
         isExporting={isExporting}
         progress={progress}
         startTime={exportStartTime}
+        onDownload={() => {
+          const blob = new Blob(chunksRef.current, {
+            type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
+          });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `video_with_subtitles_${ExportOptions[selectedPlan].resolution}.mp4`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setIsExporting(false);
+          URL.revokeObjectURL(url);
+        }}
+        onClose={() => {
+          setIsExporting(false);
+        }}
       />
 
       {showExportModal && <ExportModal />}
@@ -714,45 +728,8 @@ export function VideoExport({
           </p>
         </div>
       )}
-      <button
-        onClick={handleExport}
-        className="inline-flex items-center justify-center w-fit mx-auto px-4 py-2 bg-pink-500 text-white rounded-xl hover:bg-pink-800  transition-colors duration-300 ease-in-out"
-      >
-        <Save className="w-4 h-4 mr-2" />
-        <span className="text-center font-bold">
-          {isExporting ? `Exportando... ${progress}%` : "Exportar video"}
-        </span>
-      </button>
-
-      <ExportProgress
-        isExporting={isExporting}
-        progress={progress}
-        startTime={exportStartTime}
-      />
 
       {showExportModal && <ExportModal />}
-
-      {/* Agregar el VideoPreviewModal aquí */}
-      <VideoPreviewModal
-        isOpen={isPreviewOpen}
-        videoUrl={previewUrl}
-        onClose={() => {
-          setIsPreviewOpen(false);
-          if (previewUrl) {
-            URL.revokeObjectURL(previewUrl);
-            setPreviewUrl(null);
-          }
-        }}
-        onDownload={() => {
-          const a = document.createElement("a");
-          a.href = previewUrl;
-          a.download = `video_with_subtitles_${ExportOptions[selectedPlan].resolution}.mp4`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setIsPreviewOpen(false);
-        }}
-      />
 
       {isIOSMobile() && (
         <div className="mb-4 p-3 bg-pink-600 bg-opacity-20 border border-yellow-600 rounded">
