@@ -395,18 +395,14 @@ export function VideoExport({
             try {
               if (chunksRef.current.length > 0) {
                 const blob = new Blob(chunksRef.current, {
-                  // Forzar el tipo MIME para mejor compatibilidad con iOS
                   type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
                 });
                 const url = URL.createObjectURL(blob);
-
-                // En lugar de crear elementos DOM, usamos estados de React
                 setPreviewUrl(url);
-                setIsPreviewOpen(true);
 
                 // Limpiar después de exportar exitosamente
                 audioContext.close();
-                setIsExporting(false);
+                setIsExporting(true);
                 isExportingRef.current = false;
                 setProgress(100);
               }

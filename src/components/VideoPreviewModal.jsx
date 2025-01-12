@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { X, Download } from "lucide-react";
 
 const isIOSMobile = () => {
@@ -17,43 +17,15 @@ const VideoPreviewModal = ({
   filename,
   isOpen,
 }) => {
+  const videoRef = useRef(null);
+
   useEffect(() => {
-    if (isOpen && videoUrl && isIOSMobile()) {
-      // En iOS, necesitamos asegurarnos de que el blob se maneje correctamente
-      fetch(videoUrl)
-        .then((response) => response.blob())
-        .then((blob) => {
-          // Crear un nuevo blob con el tipo correcto para iOS
-          const iosBlob = new Blob([blob], {
-            type: "video/quicktime",
-          });
-          const iosUrl = URL.createObjectURL(iosBlob);
-
-          // Crear y hacer clic en el enlace de descarga
-          const a = document.createElement("a");
-          a.href = iosUrl;
-          a.download = filename || "video.mov"; // .mov es más compatible con iOS
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-
-          // Limpiar
-          setTimeout(() => {
-            URL.revokeObjectURL(iosUrl);
-            onClose();
-          }, 100);
-        })
-        .catch((error) => {
-          console.error("Error al procesar el video para iOS:", error);
-          alert("Error al procesar el video. Por favor, intente de nuevo.");
-        });
+    if (isOpen && videoRef.current) {
+      // Forzar la carga del video cuando el modal se abre
+      videoRef.current.load();
     }
-  }, [isOpen, videoUrl]);
+  }, [isOpen]);
 
-  // En iOS, no mostrar nuestro modal
-  if (isIOSMobile()) return null;
-
-  // En otros dispositivos, mostrar el modal normal
   if (!isOpen) return null;
 
   return (
@@ -61,17 +33,55 @@ const VideoPreviewModal = ({
       <div className="w-full max-w-2xl">
         <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden">
           <video
+            ref={videoRef}
             src={videoUrl}
             className="w-full h-full"
-            controls
+            controls={true}
             playsInline
+            controlsList="nodownload nofullscreen"
             preload="auto"
+            onLoadedMetadata={(e) => {
+              // Forzar la carga del video en iOS
+              const video = e.target;
+              video.load();
+              if (isIOSMobile()) {
+                video
+                  .play()
+                  .then(() => video.pause())
+                  .catch(console.error);
+              }
+            }}
           />
         </div>
 
         <div className="flex justify-center gap-4 mt-6">
           <button
-            onClick={onDownload}
+            onClick={() => {
+              if (isIOSMobile()) {
+                // Para iOS, usar un enfoque más compatible
+                fetch(videoUrl)
+                  .then((response) => response.blob())
+                  .then((blob) => {
+                    const iosBlob = new Blob([blob], {
+                      type: "video/quicktime",
+                    });
+                    const url = URL.createObjectURL(iosBlob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = filename || "video.mov";
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  })
+                  .catch((error) => {
+                    console.error("Error al procesar el video:", error);
+                    alert("Error al procesar el video. Intente de nuevo.");
+                  });
+              } else {
+                onDownload();
+              }
+            }}
             className="flex items-center gap-2 px-6 py-3 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors"
           >
             <Download size={20} />
