@@ -19,9 +19,34 @@ const VideoPreviewModal = ({
 }) => {
   useEffect(() => {
     if (isOpen && videoUrl && isIOSMobile()) {
-      // En iOS, simular click de descarga inmediatamente
-      onDownload();
-      onClose();
+      // En iOS, necesitamos asegurarnos de que el blob se maneje correctamente
+      fetch(videoUrl)
+        .then((response) => response.blob())
+        .then((blob) => {
+          // Crear un nuevo blob con el tipo correcto para iOS
+          const iosBlob = new Blob([blob], {
+            type: "video/quicktime",
+          });
+          const iosUrl = URL.createObjectURL(iosBlob);
+
+          // Crear y hacer clic en el enlace de descarga
+          const a = document.createElement("a");
+          a.href = iosUrl;
+          a.download = filename || "video.mov"; // .mov es más compatible con iOS
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+
+          // Limpiar
+          setTimeout(() => {
+            URL.revokeObjectURL(iosUrl);
+            onClose();
+          }, 100);
+        })
+        .catch((error) => {
+          console.error("Error al procesar el video para iOS:", error);
+          alert("Error al procesar el video. Por favor, intente de nuevo.");
+        });
     }
   }, [isOpen, videoUrl]);
 
