@@ -1,7 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Save, Lock, Check } from "lucide-react";
 import ExportProgress from "./ExportProgress";
-import VideoPreviewModal from "./VideoPreviewModal"; // Ajusta la ruta según tu estructura
 
 const ExportOptions = {
   FREE: {
@@ -25,15 +24,6 @@ const ExportOptions = {
     formats: ["mp4", "webm", "avi", "mov"],
     bitrate: 16000000, // 16 Mbps para 4K
   },
-};
-
-const isIOSMobile = () => {
-  return (
-    /iPad|iPhone|iPod/.test(navigator.platform) ||
-    (navigator.platform === "MacIntel" &&
-      navigator.maxTouchPoints > 1 &&
-      !/Mac/.test(navigator.userAgent))
-  );
 };
 
 const calculateDimensions = (videoElement, targetHeight) => {
@@ -68,8 +58,6 @@ export function VideoExport({
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   const requestAnimationFrameRef = useRef(null);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState(null);
 
   // Agregar protección contra navegación
   useEffect(() => {
@@ -113,20 +101,14 @@ export function VideoExport({
         startTime,
         isExporting: wasExporting,
       } = JSON.parse(savedState);
-
-      // Solo recuperar el estado si teníamos un video y estábamos exportando
-      if (wasExporting && videoUrl) {
-        const timeElapsed = Date.now() - startTime;
-        // Si han pasado más de 5 segundos, no recuperar el estado
-        if (timeElapsed < 5000) {
-          setProgress(savedProgress);
-          setExportStartTime(startTime);
-          setIsExporting(true);
-        }
+      if (wasExporting) {
+        setProgress(savedProgress);
+        setExportStartTime(startTime);
+        setIsExporting(true);
       }
       localStorage.removeItem("exportState");
     }
-  }, [videoUrl]);
+  }, []);
 
   const calculateWordTiming = (phrase, currentTime) => {
     const phraseLength = phrase.end - phrase.start;
@@ -258,11 +240,6 @@ export function VideoExport({
   };
 
   const getMimeType = useCallback(() => {
-    // Para iOS móvil, forzar MP4 con codec H.264
-    if (isIOSMobile()) {
-      return 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
-    }
-
     const mimeTypes = [
       "video/mp4;codecs=h264",
       "video/webm;codecs=h264",
@@ -312,125 +289,6 @@ export function VideoExport({
       );
       canvas.width = width;
       canvas.height = height;
-
-      if (isIOSMobile()) {
-        try {
-          const options = {
-            mimeType: getMimeType(),
-            videoBitsPerSecond: planDetails.bitrate,
-            audioBitsPerSecond: 128000,
-          };
-
-          const videoStream = canvas.captureStream(30);
-          const audioContext = new (window.AudioContext ||
-            window.webkitAudioContext)({
-            sampleRate: 44100,
-            latencyHint: "playback",
-          });
-
-          const source =
-            audioContext.createMediaElementSource(originalVideoElement);
-          const destination = audioContext.createMediaStreamDestination();
-          source.connect(destination);
-          source.connect(audioContext.destination);
-
-          const combinedStream = new MediaStream([
-            videoStream.getVideoTracks()[0],
-            destination.stream.getAudioTracks()[0],
-          ]);
-
-          mediaRecorderRef.current = new MediaRecorder(combinedStream, options);
-          chunksRef.current = [];
-
-          // Agregar manejador de errores
-          mediaRecorderRef.current.onerror = (error) => {
-            console.error("MediaRecorder error:", error);
-            alert("Error durante la exportación: " + error.message);
-            setIsExporting(false);
-            isExportingRef.current = false;
-            setProgress(0);
-          };
-
-          // Mejorar el manejo del progreso
-          const duration = originalVideoElement.duration;
-          let lastTime = 0;
-
-          const renderFrame = () => {
-            if (!isExportingRef.current) return;
-
-            const currentTime = originalVideoElement.currentTime;
-
-            // Actualizar progreso solo si el tiempo ha cambiado
-            if (currentTime > lastTime) {
-              const currentProgress = (currentTime / duration) * 100;
-              setProgress(Math.round(currentProgress));
-              lastTime = currentTime;
-            }
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(
-              originalVideoElement,
-              0,
-              0,
-              canvas.width,
-              canvas.height
-            );
-            drawSubtitles(ctx, canvas, currentTime, phrases, subtitleStyles);
-
-            if (currentTime < duration) {
-              requestAnimationFrameRef.current =
-                requestAnimationFrame(renderFrame);
-            } else {
-              mediaRecorderRef.current.stop();
-            }
-          };
-
-          mediaRecorderRef.current.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0) {
-              chunksRef.current.push(e.data);
-            }
-          };
-
-          mediaRecorderRef.current.onstop = async () => {
-            try {
-              if (chunksRef.current.length > 0) {
-                const blob = new Blob(chunksRef.current, {
-                  type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
-                });
-                const url = URL.createObjectURL(blob);
-                setPreviewUrl(url);
-
-                // Limpiar después de exportar exitosamente
-                audioContext.close();
-                setIsExporting(true);
-                isExportingRef.current = false;
-                setProgress(100);
-              }
-            } catch (error) {
-              console.error("Error al finalizar la exportación:", error);
-              alert("Error al finalizar la exportación: " + error.message);
-            }
-          };
-
-          setIsExporting(true);
-          isExportingRef.current = true;
-          setProgress(0);
-
-          // Iniciar grabación con un tamaño de timeslice más pequeño para iOS
-          mediaRecorderRef.current.start(100);
-          originalVideoElement.currentTime = 0;
-          await originalVideoElement.play();
-          renderFrame();
-
-          return;
-        } catch (error) {
-          console.error("Error en exportación iOS:", error);
-          alert("Error durante la exportación en iOS: " + error.message);
-          setIsExporting(false);
-          isExportingRef.current = false;
-          setProgress(0);
-        }
-      }
 
       // Crear un Worker para mantener el proceso de renderizado
       const renderWorker = new Worker(
@@ -534,21 +392,24 @@ export function VideoExport({
       mediaRecorderRef.current.onstop = async () => {
         try {
           if (chunksRef.current.length > 0) {
-            const blob = new Blob(chunksRef.current, {
-              type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
-            });
+            const blob = new Blob(chunksRef.current, { type: getMimeType() });
             const url = URL.createObjectURL(blob);
-            setPreviewUrl(url);
-
-            // Limpiar después de exportar exitosamente
-            audioContext.close();
-            setIsExporting(true); // Mantener isExporting en true para mostrar el modal
-            isExportingRef.current = false;
-            setProgress(100);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
           }
         } catch (error) {
           console.error("Error al finalizar la exportación:", error);
-          alert("Error al finalizar la exportación: " + error.message);
+        } finally {
+          cleanup();
+          setIsExporting(false);
+          isExportingRef.current = false;
+          setProgress(100);
+          setExportStartTime(null);
         }
       };
 
@@ -602,7 +463,8 @@ export function VideoExport({
 
   useEffect(() => {
     return () => {
-      if (isExportingRef.current && videoUrl) {
+      if (isExportingRef.current) {
+        // Guardar el estado final si el componente se desmonta durante la exportación
         localStorage.setItem(
           "exportState",
           JSON.stringify({
@@ -613,7 +475,7 @@ export function VideoExport({
         );
       }
     };
-  }, [progress, exportStartTime, videoUrl]);
+  }, [progress, exportStartTime]);
 
   const handleExport = () => {
     setShowExportModal(true);
@@ -700,45 +562,9 @@ export function VideoExport({
         isExporting={isExporting}
         progress={progress}
         startTime={exportStartTime}
-        onDownload={() => {
-          const blob = new Blob(chunksRef.current, {
-            type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
-          });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `video_with_subtitles_${ExportOptions[selectedPlan].resolution}.mp4`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setIsExporting(false);
-          URL.revokeObjectURL(url);
-        }}
-        onClose={() => {
-          setIsExporting(false);
-        }}
       />
 
       {showExportModal && <ExportModal />}
-      {isIOSMobile() && (
-        <div className="mb-4 p-3 bg-pink-600 bg-opacity-20 border border-yellow-600 rounded">
-          <p className="text-yellow-400 text-xs">
-            Nota: La exportación en iOS móvil puede tomar más tiempo. Por favor,
-            mantén la pantalla activa durante el proceso.
-          </p>
-        </div>
-      )}
-
-      {showExportModal && <ExportModal />}
-
-      {isIOSMobile() && (
-        <div className="mb-4 p-3 bg-pink-600 bg-opacity-20 border border-yellow-600 rounded">
-          <p className="text-yellow-400 text-xs">
-            Nota: La exportación en iOS móvil puede tomar más tiempo. Por favor,
-            mantén la pantalla activa durante el proceso.
-          </p>
-        </div>
-      )}
     </>
   );
 }
