@@ -28,9 +28,22 @@ const VideoPreviewModal = ({
             ref={videoRef}
             src={videoUrl}
             className="w-full h-full"
-            controls
+            controls={true}
             playsInline
-            preload="metadata"
+            preload="auto"
+            controlsList="nodownload nofullscreen"
+            onLoadedMetadata={(e) => {
+              // Forzar la carga del video en iOS
+              const video = e.target;
+              video.load();
+              // En iOS, reproducir brevemente y pausar ayuda a inicializar el reproductor
+              if (/iPad|iPhone|iPod/.test(navigator.platform)) {
+                video
+                  .play()
+                  .then(() => video.pause())
+                  .catch(console.error);
+              }
+            }}
           />
         </div>
 
