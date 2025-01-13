@@ -40,8 +40,8 @@ const DebugVideoExport = ({
     },
     "4k": {
       height: 2160,
-      videoBitrate: 55000000,
-      chunkInterval: 6000,
+      videoBitrate: 25000000,
+      chunkInterval: 5500,
     },
   };
 
