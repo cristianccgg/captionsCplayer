@@ -52,6 +52,16 @@ export function VideoExport({
   const [progress, setProgress] = useState(0);
   const [exportStartTime, setExportStartTime] = useState(null);
   const [hasInitialized, setHasInitialized] = useState(false);
+  const [showIOSModal, setShowIOSModal] = useState(false);
+  const [exportedVideoBlob, setExportedVideoBlob] = useState(null);
+
+  // Función para detectar iOS
+  const isIOS = () => {
+    const isIOS =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    console.log("Detectando iOS:", isIOS, "UserAgent:", navigator.userAgent);
+    return isIOS;
+  };
 
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -416,14 +426,26 @@ export function VideoExport({
         try {
           if (chunksRef.current.length > 0) {
             const blob = new Blob(chunksRef.current, { type: getMimeType() });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            console.log("Blob creado:", blob.size, "bytes");
+
+            const isiOSDevice = isIOS();
+            console.log("¿Es dispositivo iOS?:", isiOSDevice);
+
+            if (isiOSDevice) {
+              console.log("Mostrando modal para iOS");
+              setExportedVideoBlob(blob);
+              setShowIOSModal(true);
+            } else {
+              console.log("Descargando en dispositivo no-iOS");
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `video_with_subtitles_${planDetails.resolution}.mp4`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }
           }
         } catch (error) {
           console.error("Error al finalizar la exportación:", error);
@@ -501,73 +523,184 @@ export function VideoExport({
   }, [progress, exportStartTime]);
 
   const handleExport = () => {
+    console.log("Botón de exportación presionado");
     setShowExportModal(true);
   };
 
+  const startExportForIOS = async (planDetails) => {
+    if (!videoUrl || !mainVideoRef.current) return;
+
+    try {
+      const originalVideoElement = mainVideoRef.current;
+      setExportStartTime(Date.now());
+      setIsExporting(true);
+      isExportingRef.current = true;
+      setProgress(0);
+
+      // Detectar el formato soportado
+      const mimeTypes = ["video/mp4", "video/webm;codecs=h264", "video/webm"];
+
+      let selectedMimeType = null;
+      for (const type of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(type)) {
+          selectedMimeType = type;
+          break;
+        }
+      }
+
+      if (!selectedMimeType) {
+        throw new Error("No se encontró un formato de video soportado");
+      }
+
+      // Crear canvas optimizado
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", {
+        alpha: false,
+        desynchronized: true,
+        willReadFrequently: false,
+      });
+
+      // Reducir resolución para mejor rendimiento en iOS
+      const scaleFactor = 0.75; // Reducir tamaño para mejor rendimiento
+      const { width: originalWidth, height: originalHeight } =
+        calculateDimensions(
+          originalVideoElement,
+          planDetails.resolution === "4K"
+            ? 2160
+            : planDetails.resolution === "1080p"
+            ? 1080
+            : 720
+        );
+
+      const width = Math.floor(originalWidth * scaleFactor);
+      const height = Math.floor(originalHeight * scaleFactor);
+
+      canvas.width = width;
+      canvas.height = height;
+
+      // Optimizar calidad de imagen
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+
+      // Configurar stream con framerate optimizado
+      const stream = canvas.captureStream(24); // Reducir a 24fps para mejor rendimiento
+
+      // Configurar audio optimizado
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)(
+          {
+            sampleRate: 44100,
+            latencyHint: "playback",
+          }
+        );
+        const source = audioCtx.createMediaElementSource(originalVideoElement);
+        const destination = audioCtx.createMediaStreamDestination();
+        source.connect(destination);
+        source.connect(audioCtx.destination);
+        stream.addTrack(destination.stream.getAudioTracks()[0]);
+      } catch (e) {
+        console.log("No se pudo capturar el audio:", e);
+      }
+
+      // Configurar MediaRecorder con bitrate optimizado
+      const options = {
+        mimeType: selectedMimeType,
+        videoBitsPerSecond: 2500000, // 2.5 Mbps
+        audioBitsPerSecond: 128000, // 128 kbps
+      };
+
+      const mediaRecorder = new MediaRecorder(stream, options);
+      const chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        try {
+          const blob = new Blob(chunks, { type: selectedMimeType });
+          setExportedVideoBlob(blob);
+          setShowIOSModal(true);
+        } catch (error) {
+          console.error("Error al finalizar la grabación:", error);
+          alert("Error al crear el video. Por favor, intenta de nuevo.");
+        } finally {
+          setIsExporting(false);
+          isExportingRef.current = false;
+          setProgress(100);
+        }
+      };
+
+      mediaRecorder.start(1000);
+
+      // Optimizar proceso de renderizado
+      originalVideoElement.currentTime = 0;
+      await originalVideoElement.play();
+
+      let lastDrawTime = 0;
+      const frameInterval = 1000 / 24; // 24fps
+
+      const renderFrame = (timestamp) => {
+        if (!isExportingRef.current) return;
+
+        // Limitar framerate
+        if (timestamp - lastDrawTime < frameInterval) {
+          requestAnimationFrame(renderFrame);
+          return;
+        }
+
+        lastDrawTime = timestamp;
+
+        ctx.drawImage(originalVideoElement, 0, 0, width, height);
+        drawSubtitles(
+          ctx,
+          canvas,
+          originalVideoElement.currentTime,
+          phrases,
+          subtitleStyles
+        );
+
+        const progress =
+          (originalVideoElement.currentTime / originalVideoElement.duration) *
+          100;
+        setProgress(Math.round(progress));
+
+        if (originalVideoElement.currentTime >= originalVideoElement.duration) {
+          mediaRecorder.stop();
+          originalVideoElement.pause();
+        } else {
+          requestAnimationFrame(renderFrame);
+        }
+      };
+
+      requestAnimationFrame(renderFrame);
+    } catch (error) {
+      console.error("Error durante la exportación:", error);
+      setIsExporting(false);
+      isExportingRef.current = false;
+      setProgress(0);
+      alert("Error durante la exportación: " + error.message);
+    }
+  };
+
   const confirmExport = () => {
+    console.log("Confirmando exportación...");
     const planDetails = ExportOptions[selectedPlan];
 
     if (selectedPlan === "FREE") {
-      startExport(planDetails);
+      console.log("Plan FREE seleccionado, comenzando exportación");
+      if (isIOS()) {
+        startExportForIOS(planDetails);
+      } else {
+        startExport(planDetails);
+      }
       setShowExportModal(false);
     } else {
       alert(`Actualiza a plan ${selectedPlan} para estas características`);
     }
   };
-
-  const ExportModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 p-6 rounded-lg max-w-md w-full">
-        <h2 className="text-xl font-bold mb-4 text-white">
-          Opciones de Exportación
-        </h2>
-
-        {Object.entries(ExportOptions).map(([plan, details]) => (
-          <div
-            key={plan}
-            className={`flex items-center justify-between p-4 mb-2 rounded 
-              ${
-                selectedPlan === plan
-                  ? "bg-pink-600 text-white"
-                  : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-              }`}
-            onClick={() => setSelectedPlan(plan)}
-          >
-            <div>
-              <h3 className="font-bold">{plan} Plan</h3>
-              <ul className="text-sm">
-                <li>
-                  Duración máx:{" "}
-                  {details.maxDuration
-                    ? `${details.maxDuration / 60} min`
-                    : "Ilimitado"}
-                </li>
-                <li>Resolución: {details.resolution}</li>
-                <li>Marca de agua: {details.watermark ? "Sí" : "No"}</li>
-              </ul>
-            </div>
-            {selectedPlan === plan && <Check />}
-            {plan !== "FREE" && <Lock className="text-yellow-500" />}
-          </div>
-        ))}
-
-        <div className="flex justify-end space-x-2 mt-4">
-          <button
-            onClick={() => setShowExportModal(false)}
-            className="bg-gray-600 text-white px-4 py-2 rounded"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={confirmExport}
-            className="bg-pink-600 text-white px-4 py-2 rounded"
-          >
-            Exportar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <>
@@ -635,6 +768,91 @@ export function VideoExport({
                 className="bg-pink-600 text-white px-4 py-2 rounded"
               >
                 Exportar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal específico para iOS */}
+      {showIOSModal && exportedVideoBlob && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-zinc-900 rounded-xl shadow-lg w-full max-w-lg mx-auto my-auto relative">
+            {/* Botón de cerrar en la esquina superior */}
+            <button
+              onClick={() => {
+                setShowIOSModal(false);
+                setExportedVideoBlob(null);
+              }}
+              className="absolute -top-2 -right-2 w-8 h-8 bg-zinc-800 rounded-full flex items-center justify-center text-white hover:bg-zinc-700 z-10"
+            >
+              ×
+            </button>
+
+            <div className="p-4">
+              <h3 className="text-lg font-semibold text-white">
+                Tu video está listo
+              </h3>
+              <p className="text-zinc-400 text-sm">
+                Previsualiza y guarda tu video
+              </p>
+            </div>
+
+            {/* Video preview en contenedor con altura máxima */}
+            <div className="relative w-full max-h-[40vh] bg-black overflow-hidden ">
+              <video
+                className="w-full h-full object-contain"
+                controls
+                src={URL.createObjectURL(exportedVideoBlob)}
+                playsInline
+                controlsList="nodownload"
+              />
+            </div>
+
+            {/* Botones en una sección fija en la parte inferior */}
+            <div className="p-4 space-y-3 bg-zinc-900 rounded-b-xl">
+              <button
+                onClick={async () => {
+                  try {
+                    if (navigator.share) {
+                      const file = new File(
+                        [exportedVideoBlob],
+                        "video_exportado.mp4",
+                        {
+                          type: exportedVideoBlob.type,
+                        }
+                      );
+                      await navigator.share({
+                        files: [file],
+                        title: "Video exportado",
+                      });
+                    } else {
+                      const url = URL.createObjectURL(exportedVideoBlob);
+                      window.location.href = url;
+                    }
+                  } catch (error) {
+                    console.error("Error al compartir:", error);
+                    alert("Error al compartir el video. Intenta de nuevo.");
+                  }
+                }}
+                className="w-full bg-pink-600 text-white rounded-lg py-3 font-medium hover:bg-pink-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Guardar Video
               </button>
             </div>
           </div>
