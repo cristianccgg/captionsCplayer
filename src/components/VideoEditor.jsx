@@ -21,6 +21,7 @@ import SubtitleRenderer from "./SubtitleRenderer";
 import TranscriptionProgress from "./TranscriptionProgress";
 import EditorControls from "./EditorControls";
 import { LanguageSelectionModal } from "./LanguageSelectionModal";
+import DebugVideoExport from "./DebugVideoExport";
 
 export function VideoEditor() {
   const [videoFile, setVideoFile] = useState(null);
@@ -612,8 +613,8 @@ export function VideoEditor() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <div className="ms-auto flex items-center space-x-4 p-4">
-        {videoUrl && (
+      {videoUrl && (
+        <div className="ms-auto flex items-center space-x-4 p-4">
           <button
             onClick={() => {
               // Limpiar estado del video
@@ -629,16 +630,20 @@ export function VideoEditor() {
           >
             Eliminar Video
           </button>
-        )}
-        {videoUrl && (
           <VideoExport
             videoUrl={videoUrl}
             phrases={phrases}
             subtitleStyles={subtitleStyles}
             videoRef={videoRef}
           />
-        )}
-      </div>
+          <DebugVideoExport
+            videoUrl={videoUrl}
+            phrases={phrases}
+            subtitleStyles={subtitleStyles}
+            videoRef={videoRef}
+          />
+        </div>
+      )}
 
       <div className="flex flex-col md:flex-row flex-1">
         {/* Editor de Subtítulos (sin cambios) */}
