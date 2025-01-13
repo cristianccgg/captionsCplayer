@@ -538,7 +538,7 @@ export function VideoExport({
     return iOSBitrates[planDetails.resolution] || planDetails.bitrate;
   };
 
-  const startExportForIOS = async (planDetails) => {
+  /*const startExportForIOS = async (planDetails) => {
     console.log("Iniciando exportación para iOS...", { planDetails });
 
     if (!videoUrl || !mainVideoRef.current) {
@@ -790,7 +790,7 @@ export function VideoExport({
       setExportStartTime(null);
       alert(`Error en la exportación: ${error.message}`);
     }
-  };
+  }; */
 
   const confirmExport = () => {
     console.log("Confirmando exportación...");

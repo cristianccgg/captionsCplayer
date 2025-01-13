@@ -49,7 +49,20 @@ const DebugVideoExport = ({
 
       const originalVideo = mainVideoRef.current;
 
-      // Create canvas
+      // Clonar el video original
+      const clonedVideoElement = originalVideo.cloneNode(true);
+      clonedVideoElement.muted = false;
+      clonedVideoElement.currentTime = 0;
+
+      // Esperar a que el video clonado esté listo
+      await new Promise((resolve) => {
+        clonedVideoElement.addEventListener("loadeddata", resolve, {
+          once: true,
+        });
+        clonedVideoElement.load();
+      });
+
+      // Crear canvas
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d", {
         alpha: false,
@@ -57,7 +70,7 @@ const DebugVideoExport = ({
       });
 
       // Set dimensions (using 720p for testing)
-      const { videoWidth, videoHeight } = originalVideo;
+      const { videoWidth, videoHeight } = clonedVideoElement;
       const aspectRatio = videoWidth / videoHeight;
       const targetHeight = 720;
       const targetWidth = Math.round(targetHeight * aspectRatio);
@@ -85,7 +98,8 @@ const DebugVideoExport = ({
             }
           );
 
-          const source = audioContext.createMediaElementSource(originalVideo);
+          const source =
+            audioContext.createMediaElementSource(clonedVideoElement);
           const destination = audioContext.createMediaStreamDestination();
 
           // Añadir un gainNode para control de volumen
@@ -112,7 +126,7 @@ const DebugVideoExport = ({
         combinedStream = videoStream;
       }
 
-      // Configure MediaRecorder
+      // Configurar MediaRecorder
       const options = {
         mimeType: getMimeType(),
         videoBitsPerSecond: debugOptions.reducedBitrate
@@ -124,51 +138,30 @@ const DebugVideoExport = ({
       };
 
       const mediaRecorder = new MediaRecorder(combinedStream, options);
+      console.log("MediaRecorder configurado con:", {
+        videoBitrate: options.videoBitsPerSecond,
+        audioBitrate: options.audioBitsPerSecond,
+        mimeType: options.mimeType,
+        chunkInterval: debugOptions.useFixedChunkSize
+          ? debugOptions.chunkInterval
+          : 250,
+      });
       const chunks = [];
 
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
           chunks.push(e.data);
-          const chunkSizeMB = (e.data.size / (1024 * 1024)).toFixed(2);
-          console.log(
-            `Chunk recibido: ${chunkSizeMB}MB - Total chunks: ${chunks.length}`
-          );
-
-          // Monitorear el progreso y el estado del MediaRecorder
-          const currentProgress =
-            (originalVideo.currentTime / originalVideo.duration) * 100;
-          console.log(
-            `Progreso: ${currentProgress.toFixed(1)}% - Estado MediaRecorder: ${
-              mediaRecorder.state
-            }`
-          );
         }
       };
 
       mediaRecorder.onstop = () => {
         try {
-          console.log("Chunks recibidos:", chunks.length);
           const mimeType = getMimeType();
           const blob = new Blob(chunks, { type: mimeType });
           console.log("Blob creado:", blob.size, "bytes");
 
-          if (navigator.userAgent.match(/iPhone|iPad|iPod/i)) {
-            console.log("Dispositivo iOS detectado, mostrando preview");
-            setExportedVideoBlob(blob);
-            setShowPreviewModal(true);
-          } else {
-            console.log("Dispositivo no-iOS, descargando directamente");
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `debug_video_export_${Date.now()}.${
-              mimeType.includes("webm") ? "webm" : "mp4"
-            }`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          }
+          setExportedVideoBlob(blob);
+          setShowPreviewModal(true);
         } catch (error) {
           console.error("Error en mediaRecorder.onstop:", error);
         } finally {
@@ -177,56 +170,109 @@ const DebugVideoExport = ({
         }
       };
 
-      // Start recording with configured interval
-      try {
-        const chunkInterval = debugOptions.useFixedChunkSize
-          ? debugOptions.chunkInterval
-          : 250;
-        console.log("Iniciando grabación...");
-        console.log("Intervalo de chunks:", chunkInterval, "ms");
-        console.log("Video bitrate:", options.videoBitsPerSecond);
-        console.log("Audio bitrate:", options.audioBitsPerSecond);
-
-        // Asegurarse de que el video esté pausado y en el inicio
-        originalVideo.currentTime = 0;
-        originalVideo.pause();
-
-        mediaRecorder.start(chunkInterval);
-        console.log("MediaRecorder iniciado correctamente");
-
-        // Pequeño retraso antes de iniciar la reproducción
-        setTimeout(async () => {
-          try {
-            await originalVideo.play();
-            console.log("Reproducción iniciada");
-          } catch (playError) {
-            console.error("Error iniciando reproducción:", playError);
-            mediaRecorder.stop();
-            setIsExporting(false);
-          }
-        }, 100);
-      } catch (startError) {
-        console.error("Error iniciando grabación:", startError);
-        setIsExporting(false);
-      }
-
-      // Render loop
       const render = () => {
         if (!isExporting) return;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(originalVideo, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(clonedVideoElement, 0, 0, canvas.width, canvas.height);
 
         if (debugOptions.includeSubtitles) {
           const currentTime =
-            originalVideo.currentTime + debugOptions.subtitleOffset;
-          if (typeof subtitleStyles?.drawSubtitles === "function") {
-            subtitleStyles.drawSubtitles(ctx, canvas, currentTime, phrases);
+            clonedVideoElement.currentTime + debugOptions.subtitleOffset;
+
+          // Buscar frase actual
+          const currentPhrase = phrases.find(
+            (phrase) =>
+              currentTime * 1000 >= phrase.start &&
+              currentTime * 1000 <= phrase.end
+          );
+
+          if (currentPhrase) {
+            // Obtener estilos para esta frase
+            const phraseStyles =
+              subtitleStyles.phraseStyles?.[currentPhrase.id] ||
+              subtitleStyles.default;
+
+            // Configurar estilos de texto
+            const scaledFontSize = Math.round(
+              phraseStyles.fontSize * (canvas.height / 1080)
+            );
+            ctx.font = `${phraseStyles.fontWeight} ${
+              phraseStyles.fontStyle
+            } ${scaledFontSize}px ${phraseStyles.fontFamily || "Arial"}`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+
+            // Dividir texto en líneas
+            const words = currentPhrase.text.split(" ");
+            const lines = [];
+            let currentLine = [];
+            let currentLineWidth = 0;
+            const maxWidth = canvas.width * 0.9;
+
+            words.forEach((word) => {
+              const wordWidth = ctx.measureText(word + " ").width;
+              if (
+                currentLineWidth + wordWidth > maxWidth &&
+                currentLine.length > 0
+              ) {
+                lines.push(currentLine);
+                currentLine = [word];
+                currentLineWidth = wordWidth;
+              } else {
+                currentLine.push(word);
+                currentLineWidth += wordWidth;
+              }
+            });
+
+            if (currentLine.length > 0) {
+              lines.push(currentLine);
+            }
+
+            // Calcular posición vertical
+            const lineHeight = scaledFontSize * 1.2;
+            const verticalPosition = phraseStyles.customPosition?.y
+              ? phraseStyles.customPosition.y * canvas.height
+              : canvas.height * 0.8;
+
+            // Dibujar fondo si está habilitado
+            if (phraseStyles.backgroundColor !== "transparent") {
+              ctx.fillStyle = phraseStyles.backgroundColor;
+              lines.forEach((line, lineIndex) => {
+                const lineText = line.join(" ");
+                const textWidth = ctx.measureText(lineText).width;
+                const padding = 10;
+                const lineVerticalPos =
+                  verticalPosition +
+                  (lineIndex - (lines.length - 1) / 2) * lineHeight;
+
+                ctx.beginPath();
+                ctx.roundRect(
+                  canvas.width / 2 - textWidth / 2 - padding,
+                  lineVerticalPos - scaledFontSize / 2 - padding / 2,
+                  textWidth + padding * 2,
+                  scaledFontSize + padding,
+                  5
+                );
+                ctx.fill();
+              });
+            }
+
+            // Dibujar texto
+            lines.forEach((line, lineIndex) => {
+              const lineText = line.join(" ");
+              const lineVerticalPos =
+                verticalPosition +
+                (lineIndex - (lines.length - 1) / 2) * lineHeight;
+
+              ctx.fillStyle = phraseStyles.color;
+              ctx.fillText(lineText, canvas.width / 2, lineVerticalPos);
+            });
           }
         }
 
         const currentProgress =
-          (originalVideo.currentTime / originalVideo.duration) * 100;
+          (clonedVideoElement.currentTime / clonedVideoElement.duration) * 100;
         setProgress(Math.round(currentProgress));
 
         if (currentProgress >= 100) {
@@ -237,6 +283,12 @@ const DebugVideoExport = ({
         requestAnimationFrame(render);
       };
 
+      mediaRecorder.start(
+        debugOptions.useFixedChunkSize ? debugOptions.chunkInterval : 250
+      );
+
+      // Iniciar reproducción
+      await clonedVideoElement.play();
       requestAnimationFrame(render);
     } catch (error) {
       console.error("Debug export error:", error);
