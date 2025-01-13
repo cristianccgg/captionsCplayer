@@ -51,6 +51,7 @@ export function VideoExport({
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [exportStartTime, setExportStartTime] = useState(null);
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -58,6 +59,28 @@ export function VideoExport({
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   const requestAnimationFrameRef = useRef(null);
+
+  // Modified initialization effect
+  useEffect(() => {
+    if (hasInitialized) return;
+
+    const savedState = localStorage.getItem("exportState");
+    if (savedState) {
+      const {
+        progress: savedProgress,
+        startTime,
+        isExporting: wasExporting,
+      } = JSON.parse(savedState);
+      // Only restore export state if it was explicitly started by the user
+      if (wasExporting && showExportModal) {
+        setProgress(savedProgress);
+        setExportStartTime(startTime);
+        setIsExporting(true);
+      }
+      localStorage.removeItem("exportState");
+    }
+    setHasInitialized(true);
+  }, [hasInitialized, showExportModal]);
 
   // Agregar protección contra navegación
   useEffect(() => {
@@ -550,7 +573,7 @@ export function VideoExport({
     <>
       <button
         onClick={handleExport}
-        className="inline-flex items-center justify-center w-fit mx-auto px-4 py-2 bg-pink-500 text-white rounded-xl hover:bg-pink-800  transition-colors duration-300 ease-in-out"
+        className="inline-flex items-center justify-center w-fit mx-auto px-4 py-2 bg-pink-500 text-white rounded-xl hover:bg-pink-800 transition-colors duration-300 ease-in-out"
       >
         <Save className="w-4 h-4 mr-2" />
         <span className="text-center font-bold">
@@ -564,7 +587,59 @@ export function VideoExport({
         startTime={exportStartTime}
       />
 
-      {showExportModal && <ExportModal />}
+      {showExportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-6 rounded-lg max-w-md w-full">
+            <h2 className="text-xl font-bold mb-4 text-white">
+              Opciones de Exportación
+            </h2>
+
+            {Object.entries(ExportOptions).map(([plan, details]) => (
+              <div
+                key={plan}
+                className={`flex items-center justify-between p-4 mb-2 rounded 
+                  ${
+                    selectedPlan === plan
+                      ? "bg-pink-600 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  }`}
+                onClick={() => setSelectedPlan(plan)}
+              >
+                <div>
+                  <h3 className="font-bold">{plan} Plan</h3>
+                  <ul className="text-sm">
+                    <li>
+                      Duración máx:{" "}
+                      {details.maxDuration
+                        ? `${details.maxDuration / 60} min`
+                        : "Ilimitado"}
+                    </li>
+                    <li>Resolución: {details.resolution}</li>
+                    <li>Marca de agua: {details.watermark ? "Sí" : "No"}</li>
+                  </ul>
+                </div>
+                {selectedPlan === plan && <Check />}
+                {plan !== "FREE" && <Lock className="text-yellow-500" />}
+              </div>
+            ))}
+
+            <div className="flex justify-end space-x-2 mt-4">
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="bg-gray-600 text-white px-4 py-2 rounded"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmExport}
+                className="bg-pink-600 text-white px-4 py-2 rounded"
+              >
+                Exportar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
