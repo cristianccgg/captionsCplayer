@@ -83,7 +83,7 @@ export function VideoExport({
         startTime,
         isExporting: wasExporting,
       } = JSON.parse(savedState);
-      // Only restore export state if it was explicitly started by the user
+
       if (wasExporting && showExportModal) {
         setProgress(savedProgress);
         setExportStartTime(startTime);
@@ -530,13 +530,11 @@ export function VideoExport({
   };
 
   const getIOSBitrate = (planDetails) => {
-    // Bitrates optimizados para iOS
     const iOSBitrates = {
       "720p": 1500000, // 1.5 Mbps para 720p
       "1080p": 3000000, // 3 Mbps para 1080p
       "4K": 8000000, // 8 Mbps para 4K
     };
-
     return iOSBitrates[planDetails.resolution] || planDetails.bitrate;
   };
 
@@ -554,11 +552,9 @@ export function VideoExport({
       if (mediaRecorderRef.current?.state === "recording") {
         mediaRecorderRef.current.stop();
       }
-      // Limpiar streams y tracks
       if (combinedStreamRef.current) {
         combinedStreamRef.current.getTracks().forEach((track) => track.stop());
       }
-      // Cerrar contexto de audio si existe
       if (audioContextRef.current) {
         audioContextRef.current.close();
       }
@@ -616,19 +612,18 @@ export function VideoExport({
       audioContextRef.current = audioContext;
       console.log("Contexto de audio creado exitosamente");
 
-      // Mejorado el proceso de clonación de video
+      // Video setup
       console.log("Preparando clonación de video...");
       const clonedVideoElement = document.createElement("video");
       clonedVideoElement.muted = false;
       clonedVideoElement.playsInline = true;
       clonedVideoElement.setAttribute("playsinline", "");
       clonedVideoElement.crossOrigin = "anonymous";
-
       clonedVideoElement.width = originalVideoElement.width;
       clonedVideoElement.height = originalVideoElement.height;
       clonedVideoElement.currentTime = 0;
 
-      // Mejorado el proceso de carga del video
+      // Video loading
       console.log("Iniciando carga del video clonado...");
       await new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
@@ -645,8 +640,7 @@ export function VideoExport({
           resolve();
         };
 
-        const successEvents = ["loadeddata", "canplay", "canplaythrough"];
-        successEvents.forEach((event) => {
+        ["loadeddata", "canplay", "canplaythrough"].forEach((event) => {
           clonedVideoElement.addEventListener(
             event,
             () => {
@@ -659,8 +653,7 @@ export function VideoExport({
           );
         });
 
-        const errorEvents = ["error", "abort", "stalled"];
-        errorEvents.forEach((event) => {
+        ["error", "abort", "stalled"].forEach((event) => {
           clonedVideoElement.addEventListener(event, handleError, {
             once: true,
           });
@@ -677,86 +670,45 @@ export function VideoExport({
         clonedVideoElement.load();
       });
 
-      console.log("Video cargado exitosamente. Estado:", {
-        readyState: clonedVideoElement.readyState,
-        duration: clonedVideoElement.duration,
-        videoWidth: clonedVideoElement.videoWidth,
-        videoHeight: clonedVideoElement.videoHeight,
-      });
-
-      // Setup audio pipeline
+      // Audio pipeline setup
       console.log("Configurando pipeline de audio...");
       const source = audioContext.createMediaElementSource(clonedVideoElement);
       const destination = audioContext.createMediaStreamDestination();
       source.connect(destination);
       source.connect(audioContext.destination);
-      console.log("Pipeline de audio configurado");
 
-      // Setup video stream
-      console.log("Configurando stream de video...");
+      // Stream setup
+      console.log("Configurando streams...");
       const videoStream = canvas.captureStream(30);
-      console.log(
-        "Stream de video creado. Tracks:",
-        videoStream.getTracks().length
-      );
-
       const combinedStream = new MediaStream([
         ...videoStream.getTracks(),
         ...destination.stream.getTracks(),
       ]);
-      combinedStreamRef.current = combinedStream; // Guardar referencia
-      console.log(
-        "Stream combinado creado. Tracks totales:",
-        combinedStream.getTracks().length
-      );
+      combinedStreamRef.current = combinedStream;
 
-      // Verificar MIME types y configurar MediaRecorder con bitrate ajustado
-      console.log("Verificando MIME types soportados...");
-      const mimeType = getMimeType();
-      console.log("MIME type seleccionado:", mimeType);
-
-      // Ajustar bitrate para iOS
+      // MediaRecorder setup con bitrate optimizado para iOS
       const adjustedBitrate = getIOSBitrate(planDetails);
       console.log("Bitrate ajustado para iOS:", adjustedBitrate);
 
       const options = {
-        mimeType,
+        mimeType: getMimeType(),
         videoBitsPerSecond: adjustedBitrate,
-        audioBitsPerSecond: 128000, // Reducido para iOS
+        audioBitsPerSecond: 128000,
       };
-      console.log("Configurando MediaRecorder con opciones:", options);
 
-      try {
-        mediaRecorderRef.current = new MediaRecorder(combinedStream, options);
-        console.log("MediaRecorder creado exitosamente");
-      } catch (mrError) {
-        console.error("Error creando MediaRecorder:", mrError);
-        throw new Error(`No se pudo crear MediaRecorder: ${mrError.message}`);
-      }
-
+      mediaRecorderRef.current = new MediaRecorder(combinedStream, options);
       chunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (e) => {
-        console.log("Chunk de datos recibido:", e.data.size, "bytes");
         if (e.data.size > 0) {
           chunksRef.current.push(e.data);
         }
       };
 
-      mediaRecorderRef.current.onerror = (error) => {
-        console.error("Error en MediaRecorder:", error);
-      };
-
-      mediaRecorderRef.current.onstart = () => {
-        console.log("MediaRecorder iniciado");
-      };
-
       mediaRecorderRef.current.onstop = async () => {
         try {
-          console.log("MediaRecorder detenido. Procesando chunks...");
           if (chunksRef.current.length > 0) {
-            const blob = new Blob(chunksRef.current, { type: mimeType });
-            console.log("Blob creado:", blob.size, "bytes");
+            const blob = new Blob(chunksRef.current, { type: getMimeType() });
             setExportedVideoBlob(blob);
             setShowIOSModal(true);
           }
@@ -771,58 +723,55 @@ export function VideoExport({
         }
       };
 
-      // Función de renderizado
-      const render = () => {
+      // Renderizado optimizado para iOS
+      const renderForIOS = () => {
         if (!isExportingRef.current) return;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(clonedVideoElement, 0, 0, canvas.width, canvas.height);
 
+        // Ajuste de timing para subtítulos en iOS
+        const currentTime = clonedVideoElement.currentTime;
+        const subtitleOffset = -0.1; // Compensación para sincronización en iOS
+
         drawSubtitles(
           ctx,
           canvas,
-          clonedVideoElement.currentTime + 0.2,
+          currentTime + subtitleOffset,
           phrases,
           subtitleStyles
         );
 
-        requestAnimationFrameRef.current = requestAnimationFrame(render);
+        requestAnimationFrameRef.current = requestAnimationFrame(renderForIOS);
+
+        // Actualizar progreso
+        const currentProgress =
+          (currentTime / clonedVideoElement.duration) * 100;
+        setProgress(Math.round(currentProgress));
+
+        if (currentProgress >= 100) {
+          mediaRecorderRef.current?.stop();
+        }
       };
 
-      // Iniciar proceso de exportación
-      console.log("Iniciando proceso de exportación...");
+      // Iniciar exportación
       setIsExporting(true);
       isExportingRef.current = true;
       setProgress(0);
 
-      if (!mediaRecorderRef.current) {
-        throw new Error("MediaRecorder no está inicializado");
-      }
-
-      console.log("Iniciando MediaRecorder...");
-      mediaRecorderRef.current.start(250);
-
-      console.log("Iniciando reproducción...");
-      try {
-        await clonedVideoElement.play();
-        console.log("Reproducción iniciada exitosamente");
-      } catch (playError) {
-        console.error("Error al reproducir:", playError);
-        throw playError;
-      }
-
-      requestAnimationFrameRef.current = requestAnimationFrame(render);
-      console.log("Renderizado iniciado");
+      mediaRecorderRef.current.start(100); // Intervalo reducido para mejor sincronización
+      await clonedVideoElement.play();
+      requestAnimationFrameRef.current = requestAnimationFrame(renderForIOS);
 
       // Monitor de progreso
       const progressInterval = setInterval(() => {
-        if (!isExportingRef.current) return;
+        if (!isExportingRef.current) {
+          clearInterval(progressInterval);
+          return;
+        }
         const currentProgress =
           (clonedVideoElement.currentTime / clonedVideoElement.duration) * 100;
-        setProgress(Math.round(currentProgress));
-
         if (currentProgress >= 100) {
-          console.log("Exportación completada");
           clearInterval(progressInterval);
           mediaRecorderRef.current?.stop();
         }
@@ -834,7 +783,7 @@ export function VideoExport({
       };
     } catch (error) {
       console.error("Error en la exportación:", error);
-      cleanup(); // Llamar cleanup en caso de error
+      cleanup();
       setIsExporting(false);
       isExportingRef.current = false;
       setProgress(0);
