@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Save, Check } from "lucide-react";
+import { Save } from "lucide-react";
 
 const DebugVideoExport = ({
   videoUrl,
@@ -15,10 +15,36 @@ const DebugVideoExport = ({
     reducedBitrate: false,
     useFixedChunkSize: true,
     chunkInterval: 1000,
-    videoBitrate: 2500000,
+    videoBitrate: 25000000, // Mantenemos el bitrate que funcionaba bien
     audioBitrate: 128000,
     subtitleOffset: 0,
+    quality: "720p", // Nueva opción para calidad
   });
+
+  // Definimos solo las dimensiones para cada calidad
+  const resolutions = {
+    "720p": {
+      height: 720,
+      videoBitrate: 25000000, // El bitrate que sabemos que funciona bien
+      chunkInterval: 3500,
+    },
+    "1080p": {
+      height: 1080,
+      videoBitrate: 25000000, // Incrementado proporcionalmente
+      chunkInterval: 5000,
+    },
+    "2k": {
+      height: 1440,
+      videoBitrate: 25000000,
+      chunkInterval: 5500,
+    },
+    "4k": {
+      height: 2160,
+      videoBitrate: 55000000,
+      chunkInterval: 6000,
+    },
+  };
+
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
@@ -48,13 +74,10 @@ const DebugVideoExport = ({
       setProgress(0);
 
       const originalVideo = mainVideoRef.current;
-
-      // Clonar el video original
       const clonedVideoElement = originalVideo.cloneNode(true);
       clonedVideoElement.muted = false;
       clonedVideoElement.currentTime = 0;
 
-      // Esperar a que el video clonado esté listo
       await new Promise((resolve) => {
         clonedVideoElement.addEventListener("loadeddata", resolve, {
           once: true,
@@ -62,35 +85,32 @@ const DebugVideoExport = ({
         clonedVideoElement.load();
       });
 
-      // Crear canvas
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d", {
         alpha: false,
         desynchronized: true,
       });
 
-      // Set dimensions (using 720p for testing)
+      // Calcular dimensiones manteniendo aspect ratio
       const { videoWidth, videoHeight } = clonedVideoElement;
       const aspectRatio = videoWidth / videoHeight;
-      const targetHeight = 720;
+      const targetHeight = resolutions[debugOptions.quality].height;
       const targetWidth = Math.round(targetHeight * aspectRatio);
+
       canvas.width = targetWidth;
       canvas.height = targetHeight;
 
-      // Setup video stream first
-      console.log("Configurando video stream...");
+      console.log("Dimensiones del video:", targetWidth, "x", targetHeight);
+
       const videoStream = canvas.captureStream(
         debugOptions.reducedFPS ? 24 : 30
       );
-      console.log("Video stream configurado");
 
-      // Setup audio context and streams
       let audioContext;
       let combinedStream;
 
       if (debugOptions.includeAudio) {
         try {
-          console.log("Configurando audio...");
           audioContext = new (window.AudioContext || window.webkitAudioContext)(
             {
               sampleRate: 44100,
@@ -101,8 +121,6 @@ const DebugVideoExport = ({
           const source =
             audioContext.createMediaElementSource(clonedVideoElement);
           const destination = audioContext.createMediaStreamDestination();
-
-          // Añadir un gainNode para control de volumen
           const gainNode = audioContext.createGain();
           gainNode.gain.value = 1.0;
 
@@ -110,23 +128,18 @@ const DebugVideoExport = ({
           gainNode.connect(destination);
           gainNode.connect(audioContext.destination);
 
-          console.log("Audio configurado correctamente");
-
           combinedStream = new MediaStream([
             ...videoStream.getTracks(),
             ...destination.stream.getTracks(),
           ]);
         } catch (error) {
           console.error("Error configurando audio:", error);
-          // Si hay error con el audio, continuar solo con video
           combinedStream = videoStream;
         }
       } else {
-        console.log("Exportando sin audio...");
         combinedStream = videoStream;
       }
 
-      // Configurar MediaRecorder
       const options = {
         mimeType: getMimeType(),
         videoBitsPerSecond: debugOptions.reducedBitrate
@@ -138,28 +151,15 @@ const DebugVideoExport = ({
       };
 
       const mediaRecorder = new MediaRecorder(combinedStream, options);
-      console.log("MediaRecorder configurado con:", {
-        videoBitrate: options.videoBitsPerSecond,
-        audioBitrate: options.audioBitsPerSecond,
-        mimeType: options.mimeType,
-        chunkInterval: debugOptions.useFixedChunkSize
-          ? debugOptions.chunkInterval
-          : 250,
-      });
       const chunks = [];
 
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunks.push(e.data);
-        }
+        if (e.data.size > 0) chunks.push(e.data);
       };
 
       mediaRecorder.onstop = () => {
         try {
-          const mimeType = getMimeType();
-          const blob = new Blob(chunks, { type: mimeType });
-          console.log("Blob creado:", blob.size, "bytes");
-
+          const blob = new Blob(chunks, { type: getMimeType() });
           setExportedVideoBlob(blob);
           setShowPreviewModal(true);
         } catch (error) {
@@ -179,8 +179,6 @@ const DebugVideoExport = ({
         if (debugOptions.includeSubtitles) {
           const currentTime =
             clonedVideoElement.currentTime + debugOptions.subtitleOffset;
-
-          // Buscar frase actual
           const currentPhrase = phrases.find(
             (phrase) =>
               currentTime * 1000 >= phrase.start &&
@@ -286,8 +284,6 @@ const DebugVideoExport = ({
       mediaRecorder.start(
         debugOptions.useFixedChunkSize ? debugOptions.chunkInterval : 250
       );
-
-      // Iniciar reproducción
       await clonedVideoElement.play();
       requestAnimationFrame(render);
     } catch (error) {
@@ -315,6 +311,26 @@ const DebugVideoExport = ({
             </h2>
 
             <div className="space-y-4">
+              {/* Quality Selection */}
+              <div className="space-y-2">
+                <h3 className="font-semibold text-white">Export Quality</h3>
+                <select
+                  value={debugOptions.quality}
+                  onChange={(e) =>
+                    setDebugOptions((prev) => ({
+                      ...prev,
+                      quality: e.target.value,
+                    }))
+                  }
+                  className="w-full bg-gray-700 text-white rounded px-2 py-1"
+                >
+                  <option value="720p">720p HD</option>
+                  <option value="1080p">1080p Full HD</option>
+                  <option value="2k">2K QHD</option>
+                  <option value="4k">4K UHD</option>
+                </select>
+              </div>
+
               {/* Basic Options */}
               <div className="space-y-2">
                 <h3 className="font-semibold text-white">Basic Options</h3>
@@ -351,7 +367,7 @@ const DebugVideoExport = ({
               <div className="space-y-2">
                 <h3 className="font-semibold text-white">Performance</h3>
                 <label className="flex items-center justify-between text-white">
-                  <span>Reduce FPS (24 instead of 30)</span>
+                  <span>Reduce FPS</span>
                   <input
                     type="checkbox"
                     checked={debugOptions.reducedFPS}
@@ -377,81 +393,9 @@ const DebugVideoExport = ({
                     }
                   />
                 </label>
-
-                <label className="flex items-center justify-between text-white">
-                  <span>Use Fixed Chunk Size</span>
-                  <input
-                    type="checkbox"
-                    checked={debugOptions.useFixedChunkSize}
-                    onChange={(e) =>
-                      setDebugOptions((prev) => ({
-                        ...prev,
-                        useFixedChunkSize: e.target.checked,
-                      }))
-                    }
-                  />
-                </label>
               </div>
 
-              {/* Advanced Options */}
-              <div className="space-y-2">
-                <h3 className="font-semibold text-white">Advanced Options</h3>
-
-                <label className="block text-white">
-                  <span>Chunk Interval (ms)</span>
-                  <input
-                    type="number"
-                    min="100"
-                    max="2000"
-                    step="100"
-                    value={debugOptions.chunkInterval}
-                    onChange={(e) =>
-                      setDebugOptions((prev) => ({
-                        ...prev,
-                        chunkInterval: parseInt(e.target.value),
-                      }))
-                    }
-                    className="w-full mt-1 bg-gray-700 text-white rounded px-2 py-1"
-                  />
-                </label>
-
-                <label className="block text-white">
-                  <span>Video Bitrate (bps)</span>
-                  <input
-                    type="number"
-                    min="1000000"
-                    max="8000000"
-                    step="500000"
-                    value={debugOptions.videoBitrate}
-                    onChange={(e) =>
-                      setDebugOptions((prev) => ({
-                        ...prev,
-                        videoBitrate: parseInt(e.target.value),
-                      }))
-                    }
-                    className="w-full mt-1 bg-gray-700 text-white rounded px-2 py-1"
-                  />
-                </label>
-
-                <label className="block text-white">
-                  <span>Audio Bitrate (bps)</span>
-                  <input
-                    type="number"
-                    min="64000"
-                    max="256000"
-                    step="32000"
-                    value={debugOptions.audioBitrate}
-                    onChange={(e) =>
-                      setDebugOptions((prev) => ({
-                        ...prev,
-                        audioBitrate: parseInt(e.target.value),
-                      }))
-                    }
-                    className="w-full mt-1 bg-gray-700 text-white rounded px-2 py-1"
-                  />
-                </label>
-              </div>
-
+              {/* Advanced Options solo cuando sea necesario */}
               {debugOptions.includeSubtitles && (
                 <div className="space-y-2">
                   <h3 className="font-semibold text-white">Subtitle Options</h3>
