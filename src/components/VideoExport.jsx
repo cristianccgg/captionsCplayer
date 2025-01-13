@@ -799,14 +799,16 @@ export function VideoExport({
             </div>
 
             {/* Video preview en contenedor con altura máxima */}
-            <div className="relative w-full max-h-[40vh] bg-black overflow-hidden ">
-              <video
-                className="w-full h-full object-contain"
-                controls
-                src={URL.createObjectURL(exportedVideoBlob)}
-                playsInline
-                controlsList="nodownload"
-              />
+            <div className="relative w-full h-[55vh] bg-black overflow-hidden">
+              <div className="relative w-full h-full bg-black">
+                <video
+                  className="w-full h-full object-contain"
+                  controls
+                  src={URL.createObjectURL(exportedVideoBlob)}
+                  playsInline
+                  controlsList="nodownload"
+                />
+              </div>
             </div>
 
             {/* Botones en una sección fija en la parte inferior */}
